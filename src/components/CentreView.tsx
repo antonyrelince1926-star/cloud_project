@@ -1,0 +1,724 @@
+import React, { useState, useRef } from 'react';
+import { useApp } from '../context/AppContext';
+import { 
+  Building2, 
+  Lock, 
+  Unlock, 
+  Clock, 
+  ShieldCheck, 
+  ShieldAlert, 
+  CheckCircle2, 
+  XCircle, 
+  Download, 
+  Printer, 
+  Key, 
+  FileText, 
+  AlertTriangle,
+  Info,
+  Copy,
+  Check,
+  X,
+  Eye,
+  RefreshCw
+} from 'lucide-react';
+import { ReleaseRecord, QuestionPaper, Examination } from '../types';
+
+export const CentreView: React.FC = () => {
+  const { 
+    currentUser, 
+    switchRole, 
+    centres, 
+    examinations, 
+    papers, 
+    releaseRecords,
+    serverTime, 
+    attemptRelease 
+  } = useApp();
+
+  const [selectedCentreId, setSelectedCentreId] = useState(currentUser.centreId || 'centre-101');
+  const [releaseInProgress, setReleaseInProgress] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [copiedToken, setCopiedToken] = useState(false);
+  const [copiedPaper, setCopiedPaper] = useState(false);
+  const [latestReleaseResult, setLatestReleaseResult] = useState<{
+    success: boolean;
+    record: ReleaseRecord;
+    decryptedText?: string;
+    paper?: QuestionPaper;
+    exam?: Examination;
+  } | null>(null);
+
+  const resultSectionRef = useRef<HTMLDivElement>(null);
+
+  const isCentreRole = currentUser.role === 'EXAMINATION_CENTRE';
+  const currentCentre = centres.find(c => c.id === selectedCentreId) || centres[0];
+
+  // Examinations assigned to this centre
+  const assignedExams = examinations.filter(e => e.centreIds.includes(currentCentre.id));
+
+  // Trigger file download of decrypted examination paper
+  const handleDownloadPaper = (exam: Examination, paper: QuestionPaper, content: string) => {
+    const filename = `${exam.code}_${paper.id}_Decrypted_Examination_Paper.txt`;
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCopyText = (text: string, type: 'paper' | 'token') => {
+    navigator.clipboard.writeText(text);
+    if (type === 'paper') {
+      setCopiedPaper(true);
+      setTimeout(() => setCopiedPaper(false), 2000);
+    } else {
+      setCopiedToken(true);
+      setTimeout(() => setCopiedToken(false), 2000);
+    }
+  };
+
+  const handleRequestRelease = async (paperId: string) => {
+    const targetPaper = papers.find(p => p.id === paperId);
+    const targetExam = examinations.find(e => e.id === targetPaper?.examinationId);
+    
+    setReleaseInProgress(true);
+    try {
+      const res = await attemptRelease(paperId, currentCentre.id);
+      const resultObj = {
+        ...res,
+        paper: targetPaper,
+        exam: targetExam,
+      };
+      setLatestReleaseResult(resultObj);
+      setIsModalOpen(true);
+
+      // Auto-scroll in-page container as well
+      setTimeout(() => {
+        resultSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 150);
+    } catch (err: any) {
+      alert(`Release Request Failed: ${err.message}`);
+    } finally {
+      setReleaseInProgress(false);
+    }
+  };
+
+  const handleViewAlreadyReleased = (paper: QuestionPaper, exam: Examination) => {
+    const matchedRecord = releaseRecords.find(r => r.paperId === paper.id && r.status === 'SUCCESS') || {
+      id: `rel-${paper.id}`,
+      paperId: paper.id,
+      examinationId: exam.id,
+      centreId: currentCentre.id,
+      centreName: currentCentre.name,
+      releasedToUser: currentUser.name,
+      releasedAt: paper.updatedAt,
+      status: 'SUCCESS',
+      singleUseToken: `RELEASE_TOKEN_${paper.id.toUpperCase()}_CUSTODY_VALIDATED`,
+      tokenExpiresAt: new Date(Date.now() + 180000).toISOString(),
+      checklist: {
+        authenticated: true,
+        mfaVerified: true,
+        roleAuthorized: true,
+        centreAuthorized: true,
+        assignedToExam: true,
+        paperExists: true,
+        paperApproved: true,
+        paperSealed: true,
+        timeLockExpired: true,
+        fragmentsIntact: true,
+        sha256IntegrityValid: true,
+        digitalSignatureValid: true,
+        thresholdAuthorized: true,
+        singleUseTokenValid: true,
+      },
+    };
+
+    setLatestReleaseResult({
+      success: true,
+      record: matchedRecord,
+      decryptedText: paper.sampleContent,
+      paper,
+      exam,
+    });
+    setIsModalOpen(true);
+  };
+
+  return (
+    <div className="space-y-6 pb-12">
+      
+      {/* Role Notice */}
+      {!isCentreRole && (
+        <div className="bg-[#fffbeb] border border-[#fde68a] p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-[#92400e]">
+          <div className="flex items-center space-x-2">
+            <Info className="w-5 h-5 text-[#d97706] shrink-0" />
+            <span>
+              You are currently viewing as <strong>{currentUser.name} ({currentUser.role})</strong>.
+              For full zero-trust authenticity testing, switch to the official Examination Centre Officer role.
+            </span>
+          </div>
+          <button
+            onClick={() => switchRole('EXAMINATION_CENTRE', 'centre-101')}
+            className="px-3 py-1.5 rounded-lg bg-[#e95d2a] text-white font-bold hover:bg-[#d44c1b] transition shrink-0 self-start sm:self-auto"
+          >
+            Switch to Centre 101 (Metropolis)
+          </button>
+        </div>
+      )}
+
+      {/* Header Banner */}
+      <div className="bg-white rounded-xl p-6 border border-[#e5e5ea] shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-lg bg-[#059669] flex items-center justify-center text-white shadow-sm">
+              <Building2 className="w-5 h-5" />
+            </div>
+            <div>
+              <h1 className="text-xl font-extrabold text-[#222222] tracking-tight">
+                Examination Centre Paper Release Station
+              </h1>
+              <p className="text-xs text-[#6b7280]">
+                Strict server-verified release • 13-point security checklist • Instant ephemeral decryption & dispatch
+              </p>
+            </div>
+          </div>
+
+          {/* Active Centre Selector */}
+          <div className="flex items-center space-x-2">
+            <label className="text-xs font-bold text-[#222222]">Active Centre:</label>
+            <select
+              value={selectedCentreId}
+              onChange={e => {
+                setSelectedCentreId(e.target.value);
+                if (isCentreRole) switchRole('EXAMINATION_CENTRE', e.target.value);
+              }}
+              className="px-3 py-1.5 border border-[#e5e5ea] rounded-lg text-xs bg-[#f4f4f6] font-bold text-[#222222] focus:ring-2 focus:ring-[#e95d2a] focus:outline-none cursor-pointer"
+            >
+              {centres.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.code} - {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Centre Security Profile Bar */}
+        <div className="mt-4 pt-4 border-t border-[#e5e5ea] grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div>
+            <span className="text-[10px] font-bold text-[#6b7280] block">CENTRE CODE</span>
+            <span className="font-mono font-bold text-[#222222]">{currentCentre.code}</span>
+          </div>
+          <div>
+            <span className="text-[10px] font-bold text-[#6b7280] block">MUNICIPALITY</span>
+            <span className="font-semibold text-[#222222]">{currentCentre.city}</span>
+          </div>
+          <div>
+            <span className="text-[10px] font-bold text-[#6b7280] block">IP FIREWALL WHITELIST</span>
+            <span className="font-mono text-[#059669] font-bold">{currentCentre.ipWhitelist}</span>
+          </div>
+          <div>
+            <span className="text-[10px] font-bold text-[#6b7280] block">CENTRE CUSTODY STATUS</span>
+            <span className="inline-flex items-center text-[#059669] font-bold">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#10b981] mr-1"></span> AUTHORIZED
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Assigned Examinations & Release Request Cards */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-extrabold text-[#222222] uppercase tracking-wide flex items-center space-x-2">
+            <Clock className="w-4 h-4 text-[#e95d2a]" />
+            <span>Assigned Examination Papers Schedule</span>
+          </h2>
+          <span className="text-xs text-[#6b7280]">
+            Current Server Time: <strong className="font-mono text-[#222222]">{serverTime.toLocaleTimeString()}</strong>
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {assignedExams.map(exam => {
+            const paper = papers.find(p => p.examinationId === exam.id);
+            const releaseTimeMs = new Date(exam.releaseTime).getTime();
+            const currentMs = serverTime.getTime();
+            const isUnlocked = currentMs >= releaseTimeMs;
+            const secondsLeft = Math.max(0, Math.ceil((releaseTimeMs - currentMs) / 1000));
+
+            const hours = Math.floor(secondsLeft / 3600);
+            const mins = Math.floor((secondsLeft % 3600) / 60);
+            const secs = secondsLeft % 60;
+
+            const isAlreadyReleased = paper?.status === 'RELEASED';
+
+            return (
+              <div 
+                key={exam.id}
+                className={`bg-white rounded-xl border p-5 shadow-xs flex flex-col justify-between transition ${
+                  isAlreadyReleased 
+                    ? 'border-[#059669] ring-1 ring-[#059669]/20' 
+                    : isUnlocked 
+                      ? 'border-[#a7f3d0]' 
+                      : 'border-[#e5e5ea]'
+                }`}
+              >
+                <div>
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <span className="text-[10px] font-mono font-extrabold px-1.5 py-0.5 rounded bg-[#f4f4f6] text-[#222222] border border-[#e5e5ea]">
+                        {exam.code}
+                      </span>
+                      <h3 className="font-extrabold text-sm text-[#222222] mt-1.5 leading-snug">
+                        {exam.name}
+                      </h3>
+                    </div>
+                    {isAlreadyReleased ? (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#ecfdf5] text-[#059669] border border-[#a7f3d0] flex items-center space-x-1 shrink-0">
+                        <CheckCircle2 className="w-3 h-3 text-[#059669]" />
+                        <span>RELEASED</span>
+                      </span>
+                    ) : (
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center space-x-1 shrink-0 ${
+                        isUnlocked
+                          ? 'bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0]'
+                          : 'bg-[#fef3ee] text-[#e95d2a] border border-[#fde2d4]'
+                      }`}>
+                        {isUnlocked ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                        <span>{isUnlocked ? 'WINDOW OPEN' : 'TIME-LOCKED'}</span>
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="bg-[#f4f4f6] p-3 rounded-lg border border-[#e5e5ea] my-3 text-xs space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-[#6b7280]">Official Release Time:</span>
+                      <span className="font-mono font-bold text-[#222222]">
+                        {new Date(exam.releaseTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between font-bold">
+                      <span className="text-[#6b7280]">Time-Lock Status:</span>
+                      {isUnlocked ? (
+                        <span className="text-[#059669]">Elapsed (Authorized)</span>
+                      ) : (
+                        <span className="text-[#e95d2a] font-mono">
+                          {hours}h {mins}m {secs}s remaining
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {paper && (
+                    <div className="text-[11px] text-[#6b7280] mb-4 space-y-1">
+                      <div className="flex justify-between">
+                        <span>Paper ID:</span>
+                        <span className="font-mono font-bold text-[#222222]">{paper.id} (v{paper.version})</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Digital Master Seal:</span>
+                        <span className={`font-semibold ${paper.sealed ? 'text-[#059669]' : 'text-[#d97706]'}`}>
+                          {paper.sealed ? '✓ Validated & Sealed' : 'Pending Authority'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2 pt-2 border-t border-[#f0f0f2]">
+                  {/* Primary Action Button */}
+                  {isAlreadyReleased ? (
+                    <div className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => paper && handleViewAlreadyReleased(paper, exam)}
+                        className="w-full py-2.5 rounded-lg text-xs font-bold bg-[#059669] hover:bg-[#047857] text-white transition flex items-center justify-center space-x-2 shadow-sm"
+                      >
+                        <Eye className="w-4 h-4" />
+                        <span>View Decrypted Question Paper</span>
+                      </button>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => paper && handleDownloadPaper(exam, paper, paper.sampleContent)}
+                          className="flex-1 py-1.5 rounded-lg text-[11px] font-bold bg-[#f4f4f6] hover:bg-[#e5e5ea] text-[#222222] border border-[#e5e5ea] transition flex items-center justify-center space-x-1"
+                        >
+                          <Download className="w-3.5 h-3.5 text-[#059669]" />
+                          <span>Download (.txt)</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={releaseInProgress}
+                          onClick={() => paper && handleRequestRelease(paper.id)}
+                          className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-[#6b7280] hover:text-[#222222] hover:bg-[#f4f4f6] transition flex items-center space-x-1"
+                          title="Re-run 13 verification gates"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${releaseInProgress ? 'animate-spin' : ''}`} />
+                          <span>Re-check</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <button
+                        type="button"
+                        disabled={releaseInProgress || !paper}
+                        onClick={() => paper && handleRequestRelease(paper.id)}
+                        className={`w-full py-2.5 rounded-lg text-xs font-bold transition flex items-center justify-center space-x-2 shadow-sm ${
+                          isUnlocked
+                            ? 'bg-[#e95d2a] hover:bg-[#d44c1b] text-white'
+                            : 'bg-[#222222] hover:bg-black text-white'
+                        }`}
+                      >
+                        {isUnlocked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4 text-[#e95d2a]" />}
+                        <span>
+                          {releaseInProgress 
+                            ? 'Evaluating 13 Security Gates...' 
+                            : isUnlocked 
+                              ? 'Request Decrypted Examination Paper' 
+                              : 'Request Early Release (Test Time-Lock Block)'}
+                        </span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* In-Page Release Verification Result Container */}
+      <div ref={resultSectionRef}>
+        {latestReleaseResult && (
+          <div className="bg-white rounded-xl border border-[#e5e5ea] shadow-md p-6 space-y-5 animate-in fade-in slide-in-from-top-4 duration-200">
+            
+            <div className="flex items-start justify-between pb-4 border-b border-[#e5e5ea]">
+              <div className="flex items-center space-x-3">
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-white shrink-0 ${
+                  latestReleaseResult.success ? 'bg-[#059669]' : 'bg-[#e95d2a]'
+                }`}>
+                  {latestReleaseResult.success ? <ShieldCheck className="w-6 h-6" /> : <ShieldAlert className="w-6 h-6" />}
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-[#222222]">
+                    {latestReleaseResult.success 
+                      ? 'Controlled Release Authorization Granted' 
+                      : 'Controlled Release Request Blocked by Security Engine'}
+                  </h3>
+                  <p className="text-xs text-[#6b7280]">
+                    Record ID: <span className="font-mono font-bold text-[#222222]">{latestReleaseResult.record.id}</span> • Timestamp: {new Date(latestReleaseResult.record.releasedAt).toLocaleTimeString()}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                {latestReleaseResult.success && (
+                  <button
+                    onClick={() => setIsModalOpen(true)}
+                    className="text-xs px-3 py-1.5 rounded-lg bg-[#059669] text-white font-bold hover:bg-[#047857] flex items-center space-x-1 shadow-xs"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Open Paper Dialog</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => setLatestReleaseResult(null)}
+                  className="text-xs px-2.5 py-1.5 rounded-lg bg-[#f4f4f6] text-[#4b5563] hover:bg-[#e5e5ea]"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+
+            {/* 13-Point Security Verification Gates */}
+            <div>
+              <h4 className="text-xs font-bold text-[#222222] uppercase tracking-wider mb-2">
+                13-Gate Server-Side Verification Checklist:
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs">
+                {[
+                  { label: '1. User Authenticated', passed: latestReleaseResult.record.checklist.authenticated },
+                  { label: '2. MFA Token Verified', passed: latestReleaseResult.record.checklist.mfaVerified },
+                  { label: '3. Role Authorized', passed: latestReleaseResult.record.checklist.roleAuthorized },
+                  { label: '4. Centre Status Active', passed: latestReleaseResult.record.checklist.centreAuthorized },
+                  { label: '5. Centre Assigned to Exam', passed: latestReleaseResult.record.checklist.assignedToExam },
+                  { label: '6. Paper Exists & Valid', passed: latestReleaseResult.record.checklist.paperExists },
+                  { label: '7. Paper Fully Approved', passed: latestReleaseResult.record.checklist.paperApproved },
+                  { label: '8. Digital Seal Intact', passed: latestReleaseResult.record.checklist.paperSealed },
+                  { label: '9. Time-Lock Window Open', passed: latestReleaseResult.record.checklist.timeLockExpired },
+                  { label: '10. Storage Fragments Intact', passed: latestReleaseResult.record.checklist.fragmentsIntact },
+                  { label: '11. SHA-256 Plaintext Hash', passed: latestReleaseResult.record.checklist.sha256IntegrityValid },
+                  { label: '12. Digital Signature Cert', passed: latestReleaseResult.record.checklist.digitalSignatureValid },
+                  { label: '13. 3-of-5 Threshold Satisfied', passed: latestReleaseResult.record.checklist.thresholdAuthorized },
+                ].map((gate, i) => (
+                  <div 
+                    key={i} 
+                    className={`p-2 rounded-lg border flex items-center justify-between ${
+                      gate.passed ? 'bg-[#ecfdf5] border-[#a7f3d0] text-[#065f46]' : 'bg-[#fef2f2] border-[#fecaca] text-[#991b1b]'
+                    }`}
+                  >
+                    <span className="font-medium text-[11px]">{gate.label}</span>
+                    {gate.passed ? <CheckCircle2 className="w-4 h-4 text-[#10b981]" /> : <XCircle className="w-4 h-4 text-[#ef4444]" />}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Failure Banner */}
+            {!latestReleaseResult.success && latestReleaseResult.record.failureReason && (
+              <div className="p-4 bg-[#fef2f2] border border-[#fecaca] rounded-xl text-xs text-[#991b1b] space-y-2">
+                <div className="flex items-start space-x-2">
+                  <AlertTriangle className="w-5 h-5 shrink-0 text-[#ef4444]" />
+                  <div>
+                    <strong className="block font-bold text-sm">Release Gate Violation Detected:</strong>
+                    <p className="mt-0.5 leading-relaxed">{latestReleaseResult.record.failureReason}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Success: Single-Use Token & Decrypted Examination Paper */}
+            {latestReleaseResult.success && (
+              <div className="space-y-4 pt-2">
+                
+                {/* Single Use Ephemeral Release Token */}
+                <div className="bg-[#fef3ee] p-3.5 rounded-xl border border-[#fde2d4] text-xs">
+                  <div className="flex items-center justify-between text-[#e95d2a] font-bold mb-1.5">
+                    <span className="flex items-center space-x-1.5">
+                      <Key className="w-4 h-4" />
+                      <span>Single-Use Ephemeral Release Authorization Token</span>
+                    </span>
+                    <span className="text-[10px] font-mono text-[#6b7280]">Expires in 90 seconds</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="font-mono text-xs font-bold text-[#222222] bg-white p-2 rounded-lg border border-[#e5e5ea] break-all flex-1 select-all">
+                      {latestReleaseResult.record.singleUseToken}
+                    </div>
+                    <button
+                      onClick={() => handleCopyText(latestReleaseResult.record.singleUseToken, 'token')}
+                      className="px-3 py-2 rounded-lg bg-white border border-[#e5e5ea] text-[#222222] hover:bg-[#f4f4f6] text-xs font-semibold flex items-center space-x-1 shrink-0"
+                    >
+                      {copiedToken ? <Check className="w-3.5 h-3.5 text-[#059669]" /> : <Copy className="w-3.5 h-3.5 text-[#6b7280]" />}
+                      <span>{copiedToken ? 'Copied' : 'Copy Token'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Decrypted Question Paper Preview */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-bold text-[#222222] flex items-center space-x-1.5">
+                      <FileText className="w-4 h-4 text-[#059669]" />
+                      <span>Decrypted Official Examination Paper (Centre Print Dispatch)</span>
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => handleCopyText(latestReleaseResult.decryptedText || '', 'paper')}
+                        className="px-2.5 py-1.5 rounded-lg bg-[#f4f4f6] hover:bg-[#e5e5ea] text-[#222222] text-[11px] font-bold flex items-center space-x-1 border border-[#e5e5ea]"
+                      >
+                        {copiedPaper ? <Check className="w-3.5 h-3.5 text-[#059669]" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedPaper ? 'Copied' : 'Copy Text'}</span>
+                      </button>
+                      {latestReleaseResult.exam && latestReleaseResult.paper && (
+                        <button
+                          onClick={() => handleDownloadPaper(latestReleaseResult.exam!, latestReleaseResult.paper!, latestReleaseResult.decryptedText || '')}
+                          className="px-2.5 py-1.5 rounded-lg bg-[#e95d2a] hover:bg-[#d44c1b] text-white text-[11px] font-bold flex items-center space-x-1 shadow-xs"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Download Paper (.txt)</span>
+                        </button>
+                      )}
+                      <button
+                        onClick={() => window.print()}
+                        className="px-2.5 py-1.5 rounded-lg bg-[#222222] hover:bg-black text-white text-[11px] font-bold flex items-center space-x-1 shadow-xs"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>Print Paper</span>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="bg-[#f4f4f6] p-4 rounded-xl border border-[#e5e5ea] font-mono text-xs text-[#222222] max-h-80 overflow-y-auto whitespace-pre-wrap leading-relaxed select-text shadow-inner">
+                    {latestReleaseResult.decryptedText}
+                  </div>
+                </div>
+
+              </div>
+            )}
+
+          </div>
+        )}
+      </div>
+
+      {/* POPUP MODAL: INSTANT FULL-VIEW DECRYPTED EXAMINATION PAPER & VERIFICATION CERTIFICATE */}
+      {isModalOpen && latestReleaseResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl border border-[#e5e5ea] shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+            
+            {/* Modal Header */}
+            <div className={`p-5 flex items-start justify-between border-b ${
+              latestReleaseResult.success 
+                ? 'bg-[#ecfdf5] border-[#a7f3d0]' 
+                : 'bg-[#fef2f2] border-[#fecaca]'
+            }`}>
+              <div className="flex items-center space-x-3">
+                <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-white shadow-sm shrink-0 ${
+                  latestReleaseResult.success ? 'bg-[#059669]' : 'bg-[#e95d2a]'
+                }`}>
+                  {latestReleaseResult.success ? <ShieldCheck className="w-7 h-7" /> : <ShieldAlert className="w-7 h-7" />}
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-lg text-[#222222]">
+                    {latestReleaseResult.success 
+                      ? 'Official Decrypted Examination Paper' 
+                      : 'Release Blocked by Zero-Trust Security Policy'}
+                  </h3>
+                  <p className="text-xs text-[#4b5563]">
+                    {latestReleaseResult.exam?.code || 'NCE-2026-CS1'} • Centre: <span className="font-bold">{currentCentre.name}</span>
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="w-8 h-8 rounded-lg bg-white/80 hover:bg-white text-[#4b5563] flex items-center justify-center border border-[#e5e5ea] transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Scrollable Body */}
+            <div className="p-6 overflow-y-auto space-y-5 flex-1 text-xs">
+              
+              {/* If Success: Show Token & Download Toolbar */}
+              {latestReleaseResult.success ? (
+                <>
+                  {/* Security Verification Badge */}
+                  <div className="flex items-center justify-between p-3 bg-[#ecfdf5] rounded-xl border border-[#a7f3d0] text-[#065f46]">
+                    <div className="flex items-center space-x-2">
+                      <CheckCircle2 className="w-4 h-4 text-[#10b981]" />
+                      <span className="font-bold">13/13 Security Gates Passed & Reconstructed from Distributed Vaults</span>
+                    </div>
+                    <span className="font-mono text-[11px] text-[#047857]">
+                      Algorithm: AES-256-GCM
+                    </span>
+                  </div>
+
+                  {/* Ephemeral Release Token Banner */}
+                  <div className="bg-[#fef3ee] p-3 rounded-xl border border-[#fde2d4]">
+                    <div className="flex items-center justify-between text-[#e95d2a] font-bold mb-1">
+                      <span className="flex items-center space-x-1.5">
+                        <Key className="w-4 h-4" />
+                        <span>Single-Use Ephemeral Release Authorization Token</span>
+                      </span>
+                      <span className="text-[10px] font-mono text-[#6b7280]">Expires in 90 seconds</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <div className="font-mono text-xs font-bold text-[#222222] bg-white p-2 rounded-lg border border-[#e5e5ea] break-all flex-1 select-all">
+                        {latestReleaseResult.record.singleUseToken}
+                      </div>
+                      <button
+                        onClick={() => handleCopyText(latestReleaseResult.record.singleUseToken, 'token')}
+                        className="px-3 py-2 rounded-lg bg-white border border-[#e5e5ea] text-[#222222] hover:bg-[#f4f4f6] text-xs font-semibold flex items-center space-x-1 shrink-0"
+                      >
+                        {copiedToken ? <Check className="w-3.5 h-3.5 text-[#059669]" /> : <Copy className="w-3.5 h-3.5 text-[#6b7280]" />}
+                        <span>{copiedToken ? 'Copied' : 'Copy Token'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Official Question Paper Container */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-extrabold text-sm text-[#222222] flex items-center space-x-1.5">
+                        <FileText className="w-4 h-4 text-[#059669]" />
+                        <span>Decrypted Question Paper Text</span>
+                      </h4>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={() => handleCopyText(latestReleaseResult.decryptedText || '', 'paper')}
+                          className="px-3 py-1.5 rounded-lg bg-[#f4f4f6] hover:bg-[#e5e5ea] text-[#222222] text-xs font-bold flex items-center space-x-1 border border-[#e5e5ea]"
+                        >
+                          {copiedPaper ? <Check className="w-3.5 h-3.5 text-[#059669]" /> : <Copy className="w-3.5 h-3.5" />}
+                          <span>{copiedPaper ? 'Copied' : 'Copy All'}</span>
+                        </button>
+                        {latestReleaseResult.exam && latestReleaseResult.paper && (
+                          <button
+                            onClick={() => handleDownloadPaper(latestReleaseResult.exam!, latestReleaseResult.paper!, latestReleaseResult.decryptedText || '')}
+                            className="px-3 py-1.5 rounded-lg bg-[#e95d2a] hover:bg-[#d44c1b] text-white text-xs font-bold flex items-center space-x-1 shadow-xs"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>Download File (.txt)</span>
+                          </button>
+                        )}
+                        <button
+                          onClick={() => window.print()}
+                          className="px-3 py-1.5 rounded-lg bg-[#222222] hover:bg-black text-white text-xs font-bold flex items-center space-x-1 shadow-xs"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                          <span>Print</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="bg-[#fcfcfd] p-5 rounded-xl border border-[#d1d5db] font-mono text-xs text-[#111827] max-h-96 overflow-y-auto whitespace-pre-wrap leading-relaxed shadow-xs">
+                      {latestReleaseResult.decryptedText}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                /* Failure / Blocked Explanation */
+                <div className="space-y-4">
+                  <div className="p-4 bg-[#fef2f2] border border-[#fecaca] rounded-xl text-[#991b1b]">
+                    <h4 className="font-bold text-sm mb-1 flex items-center space-x-1.5">
+                      <AlertTriangle className="w-4 h-4 text-[#ef4444]" />
+                      <span>Release Blocked: Security Gate Violation</span>
+                    </h4>
+                    <p className="leading-relaxed">{latestReleaseResult.record.failureReason}</p>
+                  </div>
+
+                  <div>
+                    <h5 className="font-bold text-[#222222] uppercase tracking-wide text-[11px] mb-2">
+                      Security Gate Status:
+                    </h5>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      {[
+                        { label: 'Time-Lock Window Expired', passed: latestReleaseResult.record.checklist.timeLockExpired },
+                        { label: 'Centre Authorized & Whitelisted', passed: latestReleaseResult.record.checklist.centreAuthorized },
+                        { label: 'Examination Assigned to Centre', passed: latestReleaseResult.record.checklist.assignedToExam },
+                        { label: '3-of-5 Custody Threshold Satisfied', passed: latestReleaseResult.record.checklist.thresholdAuthorized },
+                      ].map((g, idx) => (
+                        <div key={idx} className={`p-2.5 rounded-lg border flex items-center justify-between ${
+                          g.passed ? 'bg-[#ecfdf5] border-[#a7f3d0] text-[#065f46]' : 'bg-[#fef2f2] border-[#fecaca] text-[#991b1b]'
+                        }`}>
+                          <span className="font-medium">{g.label}</span>
+                          {g.passed ? <CheckCircle2 className="w-4 h-4 text-[#10b981]" /> : <XCircle className="w-4 h-4 text-[#ef4444]" />}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-[#f4f4f6] border-t border-[#e5e5ea] flex justify-end">
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="px-4 py-2 rounded-lg bg-[#222222] hover:bg-black text-white text-xs font-bold transition shadow-xs"
+              >
+                Close Dialog
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+};

@@ -1,0 +1,7 @@
+{
+  "name": "Secure Question Paper Management System",
+  "description": "Zero-Trust Split-Seal Competitive Examination Question Paper Management System with AES-256-GCM encryption, fragmented storage, 3-of-5 threshold authorization, time-lock engine, and security monitoring.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

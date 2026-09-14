@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #f4f4f6;
+    color: #222222;
+  }
+
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+}
+
+/* Photofocus Theme Custom Utilities */
+.bg-tomato {
+  background-color: #e95d2a;
+}
+.bg-tomato-hover:hover {
+  background-color: #d44c1b;
+}
+.text-tomato {
+  color: #e95d2a;
+}
+.border-tomato {
+  border-color: #e95d2a;
+}
+.bg-tomato-light {
+  background-color: #fef3ee;
+}
+
