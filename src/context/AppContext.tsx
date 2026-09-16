@@ -53,7 +53,23 @@ interface AppContextType {
   resetServerTime: () => void;
 
   // Paper Lifecycle Actions
-  createPaper: (examId: string, title: string, subject: string, content: string, fileName: string) => Promise<string>;
+  createPaper: (
+    examId: string, 
+    title: string, 
+    subject: string, 
+    content: string, 
+    fileName: string,
+    releaseSchedule?: { examDate?: string; releaseTime?: string; durationMinutes?: number }
+  ) => Promise<string>;
+  updateExamSchedule: (
+    examId: string,
+    updates: {
+      examDate?: string;
+      releaseTime?: string;
+      durationMinutes?: number;
+      name?: string;
+    }
+  ) => void;
   submitPaper: (paperId: string) => void;
   startReview: (paperId: string) => void;
   submitReview: (paperId: string, decision: 'APPROVED' | 'REJECTED' | 'REQUEST_CHANGES', comments: string) => void;
@@ -363,18 +379,59 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // PAPER LIFECYCLE HANDLERS (ENFORCING STRICT STATE TRANSITIONS)
   // -------------------------------------------------------------
 
+  const updateExamSchedule = (
+    examId: string,
+    updates: {
+      examDate?: string;
+      releaseTime?: string;
+      durationMinutes?: number;
+      name?: string;
+    }
+  ) => {
+    setExaminations(prev => prev.map(e => {
+      if (e.id === examId) {
+        return {
+          ...e,
+          ...updates,
+        };
+      }
+      return e;
+    }));
+
+    logEvent('EXAM_RELEASE_SCHEDULE_UPDATED', 'EXAM', examId, 'INFO', 'SUCCESS', {
+      ...updates,
+      updatedBy: `${currentUser.name} (${currentUser.role})`,
+    });
+  };
+
   const createPaper = async (
     examId: string, 
     title: string, 
     subject: string, 
     content: string, 
-    fileName: string
+    fileName: string,
+    releaseSchedule?: { examDate?: string; releaseTime?: string; durationMinutes?: number }
   ): Promise<string> => {
     if (currentUser.role !== 'QUESTION_SETTER') {
       logEvent('UNAUTHORIZED_ACTION', 'PAPER', examId, 'WARNING', 'BLOCKED', {
         reason: 'Only QUESTION_SETTER can create new examination papers',
       });
       throw new Error('403 Forbidden: Insufficient role permissions');
+    }
+
+    // If a custom release schedule was provided during paper creation, sync it with the examination
+    if (releaseSchedule) {
+      setExaminations(prev => prev.map(e => {
+        if (e.id === examId) {
+          return {
+            ...e,
+            ...(releaseSchedule.examDate ? { examDate: releaseSchedule.examDate } : {}),
+            ...(releaseSchedule.releaseTime ? { releaseTime: releaseSchedule.releaseTime } : {}),
+            ...(releaseSchedule.durationMinutes ? { durationMinutes: releaseSchedule.durationMinutes } : {}),
+          };
+        }
+        return e;
+      }));
     }
 
     const exam = examinations.find(e => e.id === examId);
@@ -717,7 +774,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const checklist: ReleaseChecklist = {
       authenticated: !!currentUser,
       mfaVerified: currentUser.mfaEnabled,
-      roleAuthorized: currentUser.role === 'EXAMINATION_CENTRE' || currentUser.role === 'ADMIN',
+      roleAuthorized: currentUser.role === 'EXAMINATION_CENTRE',
       centreAuthorized: !!centre && centre.status === 'AUTHORIZED',
       assignedToExam: !!exam && exam.centreIds.includes(centreId),
       paperExists: !!paper,
@@ -748,6 +805,101 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
       setReleaseRecords(prev => [record, ...prev]);
       logEvent('RELEASE_BLOCKED', 'PAPER', paperId, 'WARNING', 'BLOCKED', { reason: record.failureReason });
+      return { success: false, record };
+    }
+
+    // 0a. Zero-Trust Role Authorization Gate:
+    // Live question paper release, decryption, and download is strictly restricted to EXAMINATION_CENTRE.
+    if (currentUser.role !== 'EXAMINATION_CENTRE') {
+      checklist.roleAuthorized = false;
+      const record: ReleaseRecord = {
+        id: `rel-${Date.now()}`,
+        paperId,
+        examinationId: exam.id,
+        centreId,
+        centreName: centre.name,
+        releasedToUser: `${currentUser.name} (${currentUser.role})`,
+        releasedAt: new Date().toISOString(),
+        status: 'BLOCKED_UNAUTHORIZED',
+        singleUseToken: '',
+        tokenExpiresAt: '',
+        checklist,
+        failureReason: `ROLE AUTHORIZATION DENIED: Active user "${currentUser.name}" holds role "${currentUser.role}". Under Zero-Trust Least-Privilege Separation of Duties, decryption, access, and download of live examination papers is strictly restricted to authorized Examination Centre Superintendents (EXAMINATION_CENTRE). System Administrators, Question Setters, and Academic Reviewers are cryptographically and policy-wise blocked from accessing decrypted examination papers.`,
+      };
+      setReleaseRecords(prev => [record, ...prev]);
+      logEvent('UNAUTHORIZED_RELEASE_ATTEMPT', 'PAPER', paperId, 'CRITICAL', 'BLOCKED', {
+        user: currentUser.name,
+        role: currentUser.role,
+        reason: 'Non-centre user attempted to decrypt and download live question paper',
+      });
+      return { success: false, record };
+    }
+    checklist.roleAuthorized = true;
+
+    // 0b. Centre Identity & Geofence / Bound Check
+    if (currentUser.centreId && currentUser.centreId !== centreId) {
+      checklist.centreAuthorized = false;
+      const record: ReleaseRecord = {
+        id: `rel-${Date.now()}`,
+        paperId,
+        examinationId: exam.id,
+        centreId,
+        centreName: centre.name,
+        releasedToUser: `${currentUser.name} (${currentUser.role})`,
+        releasedAt: new Date().toISOString(),
+        status: 'BLOCKED_UNAUTHORIZED',
+        singleUseToken: '',
+        tokenExpiresAt: '',
+        checklist,
+        failureReason: `CENTRE IDENTITY MISMATCH: User credentials belong to centre [${currentUser.centreId}], but release was requested for centre [${centreId}]. Boundary verification failed.`,
+      };
+      setReleaseRecords(prev => [record, ...prev]);
+      logEvent('CENTRE_BOUND_MISMATCH', 'CENTRE', centreId, 'CRITICAL', 'BLOCKED', {
+        userCentreId: currentUser.centreId,
+        requestedCentreId: centreId,
+      });
+      return { success: false, record };
+    }
+
+    // 0c. Centre Allocation Check
+    if (!checklist.assignedToExam) {
+      const record: ReleaseRecord = {
+        id: `rel-${Date.now()}`,
+        paperId,
+        examinationId: exam.id,
+        centreId,
+        centreName: centre.name,
+        releasedToUser: `${currentUser.name} (${currentUser.role})`,
+        releasedAt: new Date().toISOString(),
+        status: 'BLOCKED_UNAUTHORIZED',
+        singleUseToken: '',
+        tokenExpiresAt: '',
+        checklist,
+        failureReason: `CENTRE ALLOCATION ERROR: Examination [${exam.code}] is not allocated to centre [${centre.name}].`,
+      };
+      setReleaseRecords(prev => [record, ...prev]);
+      logEvent('UNAUTHORIZED_CENTRE_ALLOCATION', 'CENTRE', centreId, 'HIGH', 'BLOCKED');
+      return { success: false, record };
+    }
+
+    // 0d. Cryptographic Master Seal Check
+    if (!checklist.paperSealed) {
+      const record: ReleaseRecord = {
+        id: `rel-${Date.now()}`,
+        paperId,
+        examinationId: exam.id,
+        centreId,
+        centreName: centre.name,
+        releasedToUser: `${currentUser.name} (${currentUser.role})`,
+        releasedAt: new Date().toISOString(),
+        status: 'BLOCKED_UNAUTHORIZED',
+        singleUseToken: '',
+        tokenExpiresAt: '',
+        checklist,
+        failureReason: `UNSEALED CUSTODY: Question paper has not been sealed with the Authority Master Seal (Current status: ${paper.status}).`,
+      };
+      setReleaseRecords(prev => [record, ...prev]);
+      logEvent('RELEASE_BLOCKED_UNSEALED', 'PAPER', paperId, 'WARNING', 'BLOCKED');
       return { success: false, record };
     }
 
@@ -1048,6 +1200,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       timeOffsetMinutes,
       resetServerTime,
       createPaper,
+      updateExamSchedule,
       submitPaper,
       startReview,
       submitReview,

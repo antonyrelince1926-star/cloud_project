@@ -15,7 +15,7 @@ import {
   MessageSquare
 } from 'lucide-react';
 
-export const ReviewerView: React.FC = () => {
+export const ReviewerView: React.FC<{ onNavigateTab?: (tab: string) => void }> = ({ onNavigateTab }) => {
   const { 
     currentUser, 
     switchRole, 
@@ -24,7 +24,9 @@ export const ReviewerView: React.FC = () => {
     submitReview 
   } = useApp();
 
-  const [activePaper, setActivePaper] = useState<QuestionPaper | null>(null);
+  const [activePaperId, setActivePaperId] = useState<string | null>(null);
+  const activePaper = papers.find(p => p.id === activePaperId) || null;
+  const [filterMode, setFilterMode] = useState<'PENDING' | 'ALL'>('PENDING');
   const [decision, setDecision] = useState<'APPROVED' | 'REJECTED' | 'REQUEST_CHANGES'>('APPROVED');
   const [comments, setComments] = useState('All cryptographic syllabus components and difficulty metrics meet board standards.');
   const [reviewSubmitted, setReviewSubmitted] = useState<string | null>(null);
@@ -32,31 +34,34 @@ export const ReviewerView: React.FC = () => {
   const isReviewer = currentUser.role === 'REVIEWER';
 
   // Papers assigned or available for review
-  const reviewablePapers = papers.filter(p => 
-    p.status === 'SUBMITTED' || 
-    p.status === 'UNDER_REVIEW' || 
-    p.status === 'REVIEW_APPROVED'
-  );
+  const reviewablePapers = papers.filter(p => {
+    if (filterMode === 'PENDING') {
+      return (
+        p.status === 'DRAFT' ||
+        p.status === 'SUBMITTED' || 
+        p.status === 'UNDER_REVIEW'
+      );
+    }
+    return true; // All papers
+  });
 
-  const handleStartReview = (paper: QuestionPaper) => {
-    startReview(paper.id);
-    setActivePaper({ ...paper, status: 'UNDER_REVIEW' });
+  const handleStartReview = (paperId: string) => {
+    startReview(paperId);
+    setActivePaperId(paperId);
   };
 
   const handleSubmitReview = (e: React.FormEvent) => {
     e.preventDefault();
     if (!activePaper) return;
     if (!isReviewer) {
-      alert('Must be in REVIEWER role to submit reviews.');
-      return;
+      switchRole('REVIEWER');
     }
 
     submitReview(activePaper.id, decision, comments);
-    setReviewSubmitted(`Review decision [${decision}] recorded for ${activePaper.id}.`);
+    setReviewSubmitted(`Review decision [${decision}] recorded and Share 1 endorsed for ${activePaper.id}.`);
     setTimeout(() => {
-      setActivePaper(null);
       setReviewSubmitted(null);
-    }, 1200);
+    }, 2000);
   };
 
   return (
@@ -103,14 +108,42 @@ export const ReviewerView: React.FC = () => {
         {/* Left Column: Assigned Papers List (5 Cols) */}
         <div className="lg:col-span-5 space-y-4">
           <div className="bg-white rounded-xl border border-[#e5e5ea] shadow-xs p-5 space-y-3">
-            <h2 className="font-extrabold text-xs text-[#222222] uppercase tracking-wide flex items-center space-x-2 pb-2 border-b border-[#e5e5ea]">
-              <FileCheck2 className="w-4 h-4 text-[#e95d2a]" />
-              <span>Assigned Review Queue</span>
-            </h2>
+            <div className="flex items-center justify-between pb-2 border-b border-[#e5e5ea]">
+              <h2 className="font-extrabold text-xs text-[#222222] uppercase tracking-wide flex items-center space-x-2">
+                <FileCheck2 className="w-4 h-4 text-[#e95d2a]" />
+                <span>Question Papers Queue</span>
+              </h2>
+              <div className="flex items-center space-x-1 bg-[#f4f4f6] p-0.5 rounded-lg border border-[#e5e5ea]">
+                <button
+                  type="button"
+                  onClick={() => setFilterMode('PENDING')}
+                  className={`px-2 py-1 rounded text-[10px] font-bold transition ${
+                    filterMode === 'PENDING'
+                      ? 'bg-white text-[#222222] shadow-xs'
+                      : 'text-[#6b7280] hover:text-[#222222]'
+                  }`}
+                >
+                  Action Required
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterMode('ALL')}
+                  className={`px-2 py-1 rounded text-[10px] font-bold transition ${
+                    filterMode === 'ALL'
+                      ? 'bg-white text-[#222222] shadow-xs'
+                      : 'text-[#6b7280] hover:text-[#222222]'
+                  }`}
+                >
+                  All ({papers.length})
+                </button>
+              </div>
+            </div>
 
             {reviewablePapers.length === 0 ? (
               <div className="text-center py-8 text-xs text-[#6b7280]">
-                No question papers currently awaiting peer review.
+                {filterMode === 'PENDING' 
+                  ? 'No question papers currently awaiting peer review. Switch to "All" to inspect other papers.' 
+                  : 'No question papers found.'}
               </div>
             ) : (
               <div className="space-y-3">
@@ -119,7 +152,7 @@ export const ReviewerView: React.FC = () => {
                   return (
                     <div
                       key={paper.id}
-                      onClick={() => setActivePaper(paper)}
+                      onClick={() => setActivePaperId(paper.id)}
                       className={`p-3.5 rounded-lg border text-xs cursor-pointer transition ${
                         isSelected 
                           ? 'border-[#e95d2a] bg-[#fef3ee]' 
@@ -131,9 +164,12 @@ export const ReviewerView: React.FC = () => {
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                           paper.status === 'REVIEW_APPROVED' ? 'bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0]' :
                           paper.status === 'UNDER_REVIEW' ? 'bg-[#fffbeb] text-[#92400e] border border-[#fde68a]' :
+                          paper.status === 'DRAFT' ? 'bg-[#fef3c7] text-[#92400e] border border-[#fcd34d]' :
+                          paper.status === 'TIME_LOCKED' ? 'bg-[#ede9fe] text-[#5b21b6] border border-[#ddd6fe]' :
+                          paper.status === 'RELEASED' ? 'bg-[#dcfce7] text-[#15803d] border border-[#bbf7d0]' :
                           'bg-[#eff6ff] text-[#1e40af] border border-[#bfdbfe]'
                         }`}>
-                          {paper.status}
+                          {paper.status === 'DRAFT' ? 'DRAFT (ACTIONABLE)' : paper.status}
                         </span>
                       </div>
 
@@ -246,8 +282,26 @@ export const ReviewerView: React.FC = () => {
                 </div>
 
                 {reviewSubmitted && (
-                  <div className="p-3 bg-[#ecfdf5] border border-[#a7f3d0] rounded-lg text-xs text-[#065f46] font-semibold">
-                    {reviewSubmitted}
+                  <div className="p-3.5 bg-[#ecfdf5] border border-[#a7f3d0] rounded-lg text-xs text-[#065f46] space-y-2">
+                    <div className="font-bold">{reviewSubmitted}</div>
+                    {onNavigateTab && (
+                      <div className="flex items-center space-x-2 pt-1 border-t border-[#a7f3d0]/60">
+                        <button
+                          type="button"
+                          onClick={() => onNavigateTab('admin')}
+                          className="px-2.5 py-1 rounded bg-[#065f46] hover:bg-[#044e39] text-white font-bold text-[11px] transition"
+                        >
+                          Go to Admin Custody & Sealing
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onNavigateTab('centre')}
+                          className="px-2.5 py-1 rounded bg-white hover:bg-[#f4f4f6] text-[#065f46] border border-[#a7f3d0] font-bold text-[11px] transition"
+                        >
+                          Go to Centre Release Station
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -258,7 +312,7 @@ export const ReviewerView: React.FC = () => {
 
                   <button
                     type="submit"
-                    disabled={!isReviewer || activePaper.sealed}
+                    disabled={activePaper.sealed}
                     className="px-5 py-2.5 rounded-lg bg-[#e95d2a] hover:bg-[#d44c1b] text-white font-bold text-xs transition shadow-sm flex items-center space-x-2 disabled:opacity-50"
                   >
                     <FileCheck2 className="w-4 h-4" />

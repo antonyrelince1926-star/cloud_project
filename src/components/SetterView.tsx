@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   FileText, 
@@ -12,23 +12,32 @@ import {
   Database,
   ArrowRight,
   Info,
-  AlertCircle
+  AlertCircle,
+  ExternalLink,
+  Clock,
+  Calendar,
+  Sparkles,
+  Timer
 } from 'lucide-react';
 
-export const SetterView: React.FC = () => {
+export const SetterView: React.FC<{ onNavigateTab?: (tab: string) => void }> = ({ onNavigateTab }) => {
   const { 
     currentUser, 
     switchRole, 
     papers, 
     examinations, 
     createPaper, 
-    submitPaper 
+    updateExamSchedule,
+    submitPaper,
+    serverTime
   } = useApp();
 
   const [selectedExamId, setSelectedExamId] = useState(examinations[0]?.id || '');
   const [paperTitle, setPaperTitle] = useState('Advanced Quantum Computing & Cryptography');
   const [subject, setSubject] = useState('Computer Science & Physical Sciences');
   const [fileName, setFileName] = useState('Quantum_Crypto_2026_Final.pdf');
+  const [autoSubmitForReview, setAutoSubmitForReview] = useState(true);
+  const [createdPaperId, setCreatedPaperId] = useState<string | null>(null);
   const [content, setContent] = useState(`================================================================================
 CONFIDENTIAL COMPETITIVE EXAMINATION QUESTION PAPER
 SUBJECT: ADVANCED QUANTUM COMPUTING & POST-QUANTUM CRYPTOGRAPHY
@@ -46,17 +55,114 @@ SECTION A (50 MARKS):
 
   const myPapers = papers.filter(p => p.createdBy === 'user-setter' || p.createdBy === currentUser.id);
 
+  // Helper to format ISO to datetime-local string (YYYY-MM-DDTHH:mm)
+  const formatDateTimeLocal = (iso: string) => {
+    try {
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      const pad = (n: number) => n.toString().padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    } catch {
+      return '';
+    }
+  };
+
+  const selectedExam = examinations.find(e => e.id === selectedExamId) || examinations[0];
+
+  const [scheduleDate, setScheduleDate] = useState(selectedExam?.examDate || '2026-09-16');
+  const [scheduleReleaseTime, setScheduleReleaseTime] = useState(
+    selectedExam ? formatDateTimeLocal(selectedExam.releaseTime) : ''
+  );
+  const [scheduleDuration, setScheduleDuration] = useState(selectedExam?.durationMinutes || 180);
+  const [scheduleSuccessMsg, setScheduleSuccessMsg] = useState<string | null>(null);
+
+  // Synchronize release schedule fields when selected examination changes
+  useEffect(() => {
+    if (selectedExam) {
+      setScheduleDate(selectedExam.examDate);
+      setScheduleReleaseTime(formatDateTimeLocal(selectedExam.releaseTime));
+      setScheduleDuration(selectedExam.durationMinutes);
+    }
+  }, [selectedExamId, selectedExam?.releaseTime]);
+
+  const currentExamReleaseTimeMs = selectedExam ? new Date(selectedExam.releaseTime).getTime() : 0;
+  const isTimeUnlocked = serverTime.getTime() >= currentExamReleaseTimeMs;
+  const secondsRemaining = Math.max(0, Math.ceil((currentExamReleaseTimeMs - serverTime.getTime()) / 1000));
+  const remHours = Math.floor(secondsRemaining / 3600);
+  const remMins = Math.floor((secondsRemaining % 3600) / 60);
+  const remSecs = secondsRemaining % 60;
+
+  const handleSaveSchedule = () => {
+    if (!selectedExamId) return;
+    const releaseTimeIso = new Date(scheduleReleaseTime).toISOString();
+    updateExamSchedule(selectedExamId, {
+      examDate: scheduleDate,
+      releaseTime: releaseTimeIso,
+      durationMinutes: Number(scheduleDuration),
+    });
+    setScheduleSuccessMsg(`Release schedule for ${selectedExam?.code} updated to ${new Date(releaseTimeIso).toLocaleString()}!`);
+    setTimeout(() => setScheduleSuccessMsg(null), 4000);
+  };
+
+  const applyTimingPreset = (preset: 'OPEN_NOW' | 'IN_15M' | 'IN_1H' | 'TOMORROW') => {
+    let targetDate = new Date(serverTime.getTime());
+    if (preset === 'OPEN_NOW') {
+      targetDate = new Date(serverTime.getTime() - 2 * 60 * 1000); // 2 mins in the past: immediately open
+    } else if (preset === 'IN_15M') {
+      targetDate = new Date(serverTime.getTime() + 15 * 60 * 1000);
+    } else if (preset === 'IN_1H') {
+      targetDate = new Date(serverTime.getTime() + 60 * 60 * 1000);
+    } else if (preset === 'TOMORROW') {
+      targetDate = new Date(serverTime.getTime() + 24 * 60 * 60 * 1000);
+      targetDate.setHours(9, 0, 0, 0);
+    }
+    const dtLocal = formatDateTimeLocal(targetDate.toISOString());
+    setScheduleReleaseTime(dtLocal);
+    const dateStr = targetDate.toISOString().slice(0, 10);
+    setScheduleDate(dateStr);
+
+    if (selectedExamId) {
+      updateExamSchedule(selectedExamId, {
+        examDate: dateStr,
+        releaseTime: targetDate.toISOString(),
+        durationMinutes: Number(scheduleDuration),
+      });
+      setScheduleSuccessMsg(`Release schedule configured to ${preset === 'OPEN_NOW' ? 'Open Window (Immediate Release)' : targetDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}!`);
+      setTimeout(() => setScheduleSuccessMsg(null), 4000);
+    }
+  };
+
   const handleCreateAndEncrypt = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isSetter) {
-      alert('Must be in QUESTION_SETTER role to upload papers.');
-      return;
+      // Auto-switch to QUESTION_SETTER to assist user
+      switchRole('QUESTION_SETTER');
     }
     setIsEncrypting(true);
     setCreatedFeedback(null);
+    setCreatedPaperId(null);
     try {
-      const paperId = await createPaper(selectedExamId, paperTitle, subject, content, fileName);
-      setCreatedFeedback(`Question Paper ${paperId} encrypted via AES-256-GCM and fragmented into Store A, B, and C.`);
+      const releaseIso = scheduleReleaseTime ? new Date(scheduleReleaseTime).toISOString() : undefined;
+      const paperId = await createPaper(
+        selectedExamId, 
+        paperTitle, 
+        subject, 
+        content, 
+        fileName,
+        {
+          examDate: scheduleDate,
+          releaseTime: releaseIso,
+          durationMinutes: Number(scheduleDuration)
+        }
+      );
+      setCreatedPaperId(paperId);
+
+      if (autoSubmitForReview) {
+        submitPaper(paperId);
+        setCreatedFeedback(`Question Paper [${paperId}] encrypted (AES-256-GCM), locked to release schedule (${new Date(releaseIso || '').toLocaleTimeString()}), and successfully SUBMITTED for Academic Review!`);
+      } else {
+        setCreatedFeedback(`Question Paper [${paperId}] encrypted via AES-256-GCM and fragmented into Store A, B, and C as a DRAFT.`);
+      }
     } catch (err: any) {
       alert(err.message);
     } finally {
@@ -164,6 +270,116 @@ SECTION A (50 MARKS):
               </select>
             </div>
 
+            {/* Examination Release Schedule & Time-Lock Policy */}
+            <div className="p-4 rounded-xl border border-[#e5e5ea] bg-[#fafafa] space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-[#222222] flex items-center space-x-1.5">
+                  <Clock className="w-4 h-4 text-[#e95d2a]" />
+                  <span>Release Schedule & Time-Lock Policy</span>
+                </label>
+                <span className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center space-x-1 ${
+                  isTimeUnlocked 
+                    ? 'bg-[#ecfdf5] text-[#059669] border border-[#a7f3d0]' 
+                    : 'bg-[#fef3ee] text-[#e95d2a] border border-[#fde2d4]'
+                }`}>
+                  {isTimeUnlocked ? <CheckCircle className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                  <span>
+                    {isTimeUnlocked 
+                      ? 'WINDOW OPEN / ELAPSED' 
+                      : `TIME-LOCKED: ${remHours}h ${remMins}m ${remSecs}s`}
+                  </span>
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div>
+                  <label className="block text-[11px] font-bold text-[#4b5563] mb-1">
+                    Exam Date
+                  </label>
+                  <input
+                    type="date"
+                    value={scheduleDate}
+                    onChange={e => setScheduleDate(e.target.value)}
+                    className="w-full px-2.5 py-1.5 border border-[#d1d5db] rounded-lg text-xs bg-white focus:ring-1 focus:ring-[#e95d2a]"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-bold text-[#4b5563] mb-1 flex items-center justify-between">
+                    <span>Decryption Release Window</span>
+                    <span className="text-[10px] text-[#6b7280] font-normal font-mono">
+                      Current Server: {serverTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={scheduleReleaseTime}
+                    onChange={e => setScheduleReleaseTime(e.target.value)}
+                    className="w-full px-2.5 py-1.5 border border-[#d1d5db] rounded-lg text-xs bg-white font-mono focus:ring-1 focus:ring-[#e95d2a]"
+                  />
+                </div>
+              </div>
+
+              {/* Quick Timing Presets */}
+              <div>
+                <div className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wide mb-1.5 flex items-center space-x-1">
+                  <Sparkles className="w-3 h-3 text-[#e95d2a]" />
+                  <span>Release Timing Presets:</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => applyTimingPreset('OPEN_NOW')}
+                    className="px-2 py-1 rounded bg-white hover:bg-[#ecfdf5] border border-[#d1d5db] hover:border-[#a7f3d0] text-[10px] font-bold text-[#059669] transition shadow-2xs"
+                  >
+                    ⚡ Open Window (Immediate Testing)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyTimingPreset('IN_15M')}
+                    className="px-2 py-1 rounded bg-white hover:bg-[#fef3ee] border border-[#d1d5db] hover:border-[#fde2d4] text-[10px] font-bold text-[#e95d2a] transition shadow-2xs"
+                  >
+                    ⏱️ +15m Pre-Exam Staging
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyTimingPreset('IN_1H')}
+                    className="px-2 py-1 rounded bg-white hover:bg-[#f4f4f6] border border-[#d1d5db] text-[10px] font-medium text-[#222222] transition shadow-2xs"
+                  >
+                    🔒 +1h Time-Lock
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyTimingPreset('TOMORROW')}
+                    className="px-2 py-1 rounded bg-white hover:bg-[#f4f4f6] border border-[#d1d5db] text-[10px] font-medium text-[#222222] transition shadow-2xs"
+                  >
+                    📅 Tomorrow 09:00 AM
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-1 border-t border-[#e5e5ea] text-[11px]">
+                <span className="text-[#6b7280]">
+                  Paper payload is cryptographically locked until this timestamp.
+                </span>
+                <button
+                  type="button"
+                  onClick={handleSaveSchedule}
+                  className="px-2.5 py-1 rounded bg-[#222222] hover:bg-black text-white text-[11px] font-bold transition flex items-center space-x-1"
+                >
+                  <Clock className="w-3 h-3 text-[#e95d2a]" />
+                  <span>Update Schedule</span>
+                </button>
+              </div>
+
+              {scheduleSuccessMsg && (
+                <div className="p-2 rounded bg-[#ecfdf5] border border-[#a7f3d0] text-[11px] font-semibold text-[#065f46] flex items-center space-x-1.5 animate-in fade-in">
+                  <CheckCircle className="w-3.5 h-3.5 text-[#10b981] shrink-0" />
+                  <span>{scheduleSuccessMsg}</span>
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-bold text-[#222222] mb-1">
@@ -237,28 +453,170 @@ SECTION A (50 MARKS):
               />
             </div>
 
+            {/* Auto-Submit for Academic Review Checkbox */}
+            <div className="p-3 bg-[#f4f4f6] rounded-lg border border-[#e5e5ea] flex items-center justify-between text-xs">
+              <label className="flex items-center space-x-2.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={autoSubmitForReview}
+                  onChange={e => setAutoSubmitForReview(e.target.checked)}
+                  className="rounded border-[#d1d5db] text-[#e95d2a] focus:ring-[#e95d2a] w-4 h-4"
+                />
+                <span className="font-bold text-[#222222]">
+                  Automatically Submit for Academic Review upon encryption
+                </span>
+              </label>
+              <span className="text-[11px] text-[#6b7280]">
+                {autoSubmitForReview ? 'Status: SUBMITTED' : 'Status: DRAFT'}
+              </span>
+            </div>
+
             {createdFeedback && (
-              <div className="p-3 rounded-lg bg-[#ecfdf5] border border-[#a7f3d0] text-xs text-[#065f46] flex items-center space-x-2">
-                <CheckCircle className="w-4 h-4 shrink-0 text-[#10b981]" />
-                <span className="font-semibold">{createdFeedback}</span>
+              <div className="p-3.5 rounded-lg bg-[#ecfdf5] border border-[#a7f3d0] text-xs text-[#065f46] space-y-2.5">
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="w-4 h-4 shrink-0 text-[#10b981]" />
+                  <span className="font-bold">{createdFeedback}</span>
+                </div>
+
+                {onNavigateTab && (
+                  <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-[#a7f3d0]/60">
+                    <button
+                      type="button"
+                      onClick={() => onNavigateTab('reviewer')}
+                      className="px-2.5 py-1 rounded bg-[#065f46] hover:bg-[#044e39] text-white font-bold text-[11px] transition flex items-center space-x-1"
+                    >
+                      <span>Go to Reviewer Station</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onNavigateTab('admin')}
+                      className="px-2.5 py-1 rounded bg-white hover:bg-[#f4f4f6] text-[#065f46] border border-[#a7f3d0] font-bold text-[11px] transition flex items-center space-x-1"
+                    >
+                      <span>Admin Custody & Seal</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onNavigateTab('centre')}
+                      className="px-2.5 py-1 rounded bg-white hover:bg-[#f4f4f6] text-[#065f46] border border-[#a7f3d0] font-bold text-[11px] transition flex items-center space-x-1"
+                    >
+                      <span>Centre Release Station</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
             <button
               type="submit"
-              disabled={isEncrypting || !isSetter}
+              disabled={isEncrypting}
               className="w-full py-2.5 rounded-lg bg-[#e95d2a] hover:bg-[#d44c1b] text-white font-bold text-xs transition shadow-sm flex items-center justify-center space-x-2 disabled:opacity-50"
             >
               <Lock className="w-4 h-4" />
-              <span>{isEncrypting ? 'Encrypting & Fragmenting...' : 'Encrypt with AES-256-GCM & Generate Split Storage (Store A, B, C)'}</span>
+              <span>
+                {isEncrypting 
+                  ? 'Encrypting & Fragmenting...' 
+                  : autoSubmitForReview 
+                    ? 'Encrypt AES-256-GCM, Fragment & Submit for Review' 
+                    : 'Encrypt AES-256-GCM & Save as Draft'}
+              </span>
             </button>
 
           </form>
         </div>
 
-        {/* Right Column: Cryptographic Architecture Explainer & My Papers (5 Cols) */}
+        {/* Right Column: Cryptographic Architecture Explainer, Release Schedules & My Papers (5 Cols) */}
         <div className="lg:col-span-5 space-y-5">
           
+          {/* Master Examination Release Schedules Card */}
+          <div className="bg-white rounded-xl border border-[#e5e5ea] shadow-xs p-5 space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-[#e5e5ea]">
+              <h3 className="font-extrabold text-xs text-[#222222] uppercase tracking-wide flex items-center space-x-2">
+                <Calendar className="w-4 h-4 text-[#e95d2a]" />
+                <span>Examination Release Schedules ({examinations.length})</span>
+              </h3>
+              <span className="text-[10px] font-mono text-[#6b7280]">
+                Server: {serverTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
+
+            <p className="text-xs text-[#6b7280]">
+              Decryption keys and 13-gate release authorization are strictly locked until scheduled release time.
+            </p>
+
+            <div className="space-y-2.5">
+              {examinations.map(exam => {
+                const isSelected = exam.id === selectedExamId;
+                const examPapers = papers.filter(p => p.examinationId === exam.id);
+                const examReleaseMs = new Date(exam.releaseTime).getTime();
+                const isExamOpen = serverTime.getTime() >= examReleaseMs;
+                const examSecsLeft = Math.max(0, Math.ceil((examReleaseMs - serverTime.getTime()) / 1000));
+                const eHours = Math.floor(examSecsLeft / 3600);
+                const eMins = Math.floor((examSecsLeft % 3600) / 60);
+                const eSecs = examSecsLeft % 60;
+
+                return (
+                  <div
+                    key={exam.id}
+                    onClick={() => setSelectedExamId(exam.id)}
+                    className={`p-3 rounded-lg border text-xs cursor-pointer transition space-y-2 ${
+                      isSelected 
+                        ? 'bg-[#fef3ee]/60 border-[#e95d2a] ring-1 ring-[#e95d2a]/30' 
+                        : 'bg-[#fafafa] hover:bg-[#f4f4f6] border-[#e5e5ea]'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="font-bold text-[#222222] flex items-center space-x-1.5">
+                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-white border border-[#e5e5ea] text-[#e95d2a]">
+                            {exam.code}
+                          </span>
+                          <span>{exam.name}</span>
+                        </div>
+                        <div className="text-[10px] text-[#6b7280] mt-0.5">
+                          Exam Date: <strong>{exam.examDate}</strong> • Window: <strong>{new Date(exam.releaseTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong>
+                        </div>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 flex items-center space-x-1 ${
+                        isExamOpen 
+                          ? 'bg-[#ecfdf5] text-[#059669] border border-[#a7f3d0]' 
+                          : 'bg-[#fef3ee] text-[#e95d2a] border border-[#fde2d4]'
+                      }`}>
+                        {isExamOpen ? <CheckCircle className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                        <span>
+                          {isExamOpen 
+                            ? 'OPEN' 
+                            : `${eHours}h ${eMins}m ${eSecs}s`}
+                        </span>
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-[#e5e5ea]/80">
+                      <span className="text-[#6b7280]">
+                        {examPapers.length === 0 ? 'No papers assigned' : (
+                          <span className="font-medium text-[#222222]">
+                            {examPapers.length} {examPapers.length === 1 ? 'Paper' : 'Papers'} • {examPapers.filter(p => p.sealed).length} Sealed
+                          </span>
+                        )}
+                      </span>
+                      {isSelected ? (
+                        <span className="text-[10px] font-bold text-[#e95d2a]">
+                          Selected Exam ✓
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-[#6b7280] hover:text-[#222222]">
+                          Click to manage schedule →
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Zero-Trust Encryption Pipeline Card */}
           <div className="bg-[#222222] text-white rounded-xl p-5 border border-[#333333] shadow-xs space-y-3">
             <div className="flex items-center space-x-2">

@@ -19,11 +19,12 @@ import {
   Check,
   X,
   Eye,
-  RefreshCw
+  RefreshCw,
+  UserCheck
 } from 'lucide-react';
 import { ReleaseRecord, QuestionPaper, Examination } from '../types';
 
-export const CentreView: React.FC = () => {
+export const CentreView: React.FC<{ onNavigateTab?: (tab: string) => void }> = ({ onNavigateTab }) => {
   const { 
     currentUser, 
     switchRole, 
@@ -36,6 +37,7 @@ export const CentreView: React.FC = () => {
   } = useApp();
 
   const [selectedCentreId, setSelectedCentreId] = useState(currentUser.centreId || 'centre-101');
+  const [selectedPaperByExam, setSelectedPaperByExam] = useState<Record<string, string>>({});
   const [releaseInProgress, setReleaseInProgress] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [copiedToken, setCopiedToken] = useState(false);
@@ -56,8 +58,12 @@ export const CentreView: React.FC = () => {
   // Examinations assigned to this centre
   const assignedExams = examinations.filter(e => e.centreIds.includes(currentCentre.id));
 
-  // Trigger file download of decrypted examination paper
+  // Trigger file download of decrypted examination paper - STRICTLY RESTRICTED TO CENTRE USERS
   const handleDownloadPaper = (exam: Examination, paper: QuestionPaper, content: string) => {
+    if (!isCentreRole) {
+      alert(`Zero-Trust Security Violation: Access Denied. Live question paper file download is restricted EXCLUSIVELY to authenticated Examination Centre Superintendents (EXAMINATION_CENTRE). You are currently signed in as "${currentUser.name}" (${currentUser.role}).`);
+      return;
+    }
     const filename = `${exam.code}_${paper.id}_Decrypted_Examination_Paper.txt`;
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -71,6 +77,10 @@ export const CentreView: React.FC = () => {
   };
 
   const handleCopyText = (text: string, type: 'paper' | 'token') => {
+    if (type === 'paper' && !isCentreRole) {
+      alert(`Zero-Trust Security Violation: Copying decrypted examination questions is restricted exclusively to Examination Centre Superintendents.`);
+      return;
+    }
     navigator.clipboard.writeText(text);
     if (type === 'paper') {
       setCopiedPaper(true);
@@ -79,6 +89,14 @@ export const CentreView: React.FC = () => {
       setCopiedToken(true);
       setTimeout(() => setCopiedToken(false), 2000);
     }
+  };
+
+  const handlePrintPaper = () => {
+    if (!isCentreRole) {
+      alert(`Zero-Trust Security Violation: Printing live examination papers is restricted exclusively to Examination Centre Superintendents.`);
+      return;
+    }
+    window.print();
   };
 
   const handleRequestRelease = async (paperId: string) => {
@@ -108,6 +126,11 @@ export const CentreView: React.FC = () => {
   };
 
   const handleViewAlreadyReleased = (paper: QuestionPaper, exam: Examination) => {
+    if (!isCentreRole) {
+      alert(`Zero-Trust Security Violation: Access Denied. Plaintext examination papers can ONLY be accessed and viewed by verified Examination Centre Superintendents. Current role: ${currentUser.role}`);
+      return;
+    }
+
     const matchedRecord = releaseRecords.find(r => r.paperId === paper.id && r.status === 'SUCCESS') || {
       id: `rel-${paper.id}`,
       paperId: paper.id,
@@ -243,7 +266,10 @@ export const CentreView: React.FC = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {assignedExams.map(exam => {
-            const paper = papers.find(p => p.examinationId === exam.id);
+            const examPapers = papers.filter(p => p.examinationId === exam.id);
+            const currentSelectedPaperId = selectedPaperByExam[exam.id] || examPapers[0]?.id;
+            const paper = examPapers.find(p => p.id === currentSelectedPaperId) || examPapers[0];
+
             const releaseTimeMs = new Date(exam.releaseTime).getTime();
             const currentMs = serverTime.getTime();
             const isUnlocked = currentMs >= releaseTimeMs;
@@ -254,6 +280,7 @@ export const CentreView: React.FC = () => {
             const secs = secondsLeft % 60;
 
             const isAlreadyReleased = paper?.status === 'RELEASED';
+            const isReadyForRelease = paper?.sealed && isUnlocked;
 
             return (
               <div 
@@ -293,6 +320,31 @@ export const CentreView: React.FC = () => {
                     )}
                   </div>
 
+                  {/* Paper Set Selector if multiple papers exist */}
+                  {examPapers.length > 1 && (
+                    <div className="my-2 p-2 bg-[#f4f4f6] rounded-lg border border-[#e5e5ea]">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-[#6b7280]">
+                          Select Question Paper Set ({examPapers.length} available):
+                        </span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-white text-[#e95d2a] font-bold border border-[#e5e5ea]">
+                          New Paper Detected
+                        </span>
+                      </div>
+                      <select
+                        value={paper?.id || ''}
+                        onChange={e => setSelectedPaperByExam(prev => ({ ...prev, [exam.id]: e.target.value }))}
+                        className="w-full text-xs font-semibold px-2 py-1.5 rounded border border-[#e5e5ea] bg-white text-[#222222] focus:ring-1 focus:ring-[#e95d2a]"
+                      >
+                        {examPapers.map(p => (
+                          <option key={p.id} value={p.id}>
+                            {p.id} - {p.title} [{p.status}]
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
                   <div className="bg-[#f4f4f6] p-3 rounded-lg border border-[#e5e5ea] my-3 text-xs space-y-1">
                     <div className="flex justify-between">
                       <span className="text-[#6b7280]">Official Release Time:</span>
@@ -313,53 +365,139 @@ export const CentreView: React.FC = () => {
                   </div>
 
                   {paper && (
-                    <div className="text-[11px] text-[#6b7280] mb-4 space-y-1">
+                    <div className="text-[11px] text-[#6b7280] mb-3 space-y-1">
                       <div className="flex justify-between">
-                        <span>Paper ID:</span>
-                        <span className="font-mono font-bold text-[#222222]">{paper.id} (v{paper.version})</span>
+                        <span>Paper ID & Version:</span>
+                        <span className="font-mono font-bold text-[#222222]">
+                          {paper.id} (v{paper.version})
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Paper Title:</span>
+                        <span className="font-medium text-[#222222] truncate max-w-[180px] text-right" title={paper.title}>
+                          {paper.title}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Custody Quorum:</span>
+                        <span className="font-mono font-bold text-[#222222]">
+                          {paper.thresholdShares.filter(s => s.approved).length} / {paper.thresholdShares.length}
+                          <span className="ml-1 text-[10px] font-normal text-[#6b7280]">
+                            {paper.thresholdShares.filter(s => s.approved).length >= 3 ? '(Quorum ✓)' : '(Need 3)'}
+                          </span>
+                        </span>
                       </div>
                       <div className="flex justify-between">
                         <span>Digital Master Seal:</span>
                         <span className={`font-semibold ${paper.sealed ? 'text-[#059669]' : 'text-[#d97706]'}`}>
-                          {paper.sealed ? '✓ Validated & Sealed' : 'Pending Authority'}
+                          {paper.sealed ? '✓ Validated & Sealed' : `Pending Authority (${paper.status})`}
                         </span>
                       </div>
+                    </div>
+                  )}
+
+                  {/* Zero-Trust Custody Stage Warning if not sealed */}
+                  {paper && !paper.sealed && (
+                    <div className="mb-3 bg-[#fffbeb] border border-[#fde68a] p-2.5 rounded-lg text-[11px] text-[#92400e] space-y-1">
+                      <div className="font-bold flex items-center space-x-1">
+                        <AlertTriangle className="w-3.5 h-3.5 text-[#d97706] shrink-0" />
+                        <span>Zero-Trust Stage: {paper.status}</span>
+                      </div>
+                      <p className="text-[10px] leading-relaxed text-[#b45309]">
+                        {paper.status === 'DRAFT' && 'Setter has drafted this paper. Needs Reviewer approval & Admin 3-of-5 custody threshold seal.'}
+                        {paper.status === 'SUBMITTED' && 'Submitted for Academic Review. Needs Reviewer endorsement & Admin custody seal.'}
+                        {paper.status === 'UNDER_REVIEW' && 'Currently undergoing academic syllabus audit by peer reviewer.'}
+                        {paper.status === 'REVIEW_APPROVED' && 'Academic review approved! Ready for Admin 3-of-5 custody signatures and Master Seal.'}
+                        {paper.status === 'AUTHORITY_APPROVED' && 'Threshold satisfied! Awaiting Admin Master Seal to lock into time-vault.'}
+                      </p>
+                      {onNavigateTab && (
+                        <div className="flex items-center gap-1.5 pt-1">
+                          {(paper.status === 'DRAFT' || paper.status === 'SUBMITTED' || paper.status === 'UNDER_REVIEW') && (
+                            <button
+                              type="button"
+                              onClick={() => onNavigateTab('reviewer')}
+                              className="px-2 py-0.5 rounded bg-[#d97706] text-white font-bold text-[10px] hover:bg-[#b45309] transition"
+                            >
+                              Go to Reviewer
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => onNavigateTab('admin')}
+                            className="px-2 py-0.5 rounded bg-white text-[#92400e] border border-[#fde68a] font-bold text-[10px] hover:bg-[#fef3c7] transition"
+                          >
+                            Sign Custody in Admin
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
 
                 <div className="space-y-2 pt-2 border-t border-[#f0f0f2]">
-                  {/* Primary Action Button */}
+                  {/* Primary Action Button - Strictly Gated to Centre Role */}
                   {isAlreadyReleased ? (
                     <div className="space-y-2">
-                      <button
-                        type="button"
-                        onClick={() => paper && handleViewAlreadyReleased(paper, exam)}
-                        className="w-full py-2.5 rounded-lg text-xs font-bold bg-[#059669] hover:bg-[#047857] text-white transition flex items-center justify-center space-x-2 shadow-sm"
-                      >
-                        <Eye className="w-4 h-4" />
-                        <span>View Decrypted Question Paper</span>
-                      </button>
-                      <div className="flex items-center space-x-2">
-                        <button
-                          type="button"
-                          onClick={() => paper && handleDownloadPaper(exam, paper, paper.sampleContent)}
-                          className="flex-1 py-1.5 rounded-lg text-[11px] font-bold bg-[#f4f4f6] hover:bg-[#e5e5ea] text-[#222222] border border-[#e5e5ea] transition flex items-center justify-center space-x-1"
-                        >
-                          <Download className="w-3.5 h-3.5 text-[#059669]" />
-                          <span>Download (.txt)</span>
-                        </button>
-                        <button
-                          type="button"
-                          disabled={releaseInProgress}
-                          onClick={() => paper && handleRequestRelease(paper.id)}
-                          className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-[#6b7280] hover:text-[#222222] hover:bg-[#f4f4f6] transition flex items-center space-x-1"
-                          title="Re-run 13 verification gates"
-                        >
-                          <RefreshCw className={`w-3.5 h-3.5 ${releaseInProgress ? 'animate-spin' : ''}`} />
-                          <span>Re-check</span>
-                        </button>
-                      </div>
+                      {isCentreRole ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => paper && handleViewAlreadyReleased(paper, exam)}
+                            className="w-full py-2.5 rounded-lg text-xs font-bold bg-[#059669] hover:bg-[#047857] text-white transition flex items-center justify-center space-x-2 shadow-sm"
+                          >
+                            <Eye className="w-4 h-4" />
+                            <span>View Decrypted Question Paper</span>
+                          </button>
+                          <div className="flex items-center space-x-2">
+                            <button
+                              type="button"
+                              onClick={() => paper && handleDownloadPaper(exam, paper, paper.sampleContent)}
+                              className="flex-1 py-1.5 rounded-lg text-[11px] font-bold bg-[#f4f4f6] hover:bg-[#e5e5ea] text-[#222222] border border-[#e5e5ea] transition flex items-center justify-center space-x-1"
+                            >
+                              <Download className="w-3.5 h-3.5 text-[#059669]" />
+                              <span>Download (.txt)</span>
+                            </button>
+                            <button
+                              type="button"
+                              disabled={releaseInProgress}
+                              onClick={() => paper && handleRequestRelease(paper.id)}
+                              className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-[#6b7280] hover:text-[#222222] hover:bg-[#f4f4f6] transition flex items-center space-x-1"
+                              title="Re-run 13 verification gates"
+                            >
+                              <RefreshCw className={`w-3.5 h-3.5 ${releaseInProgress ? 'animate-spin' : ''}`} />
+                              <span>Re-check</span>
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="p-3 bg-[#fef2f2] border border-[#fecaca] rounded-lg text-xs text-[#991b1b] space-y-2">
+                          <div className="flex items-center space-x-1.5 font-bold">
+                            <ShieldAlert className="w-4 h-4 text-[#ef4444] shrink-0" />
+                            <span>Restricted: Centre Users Only</span>
+                          </div>
+                          <p className="text-[11px] text-[#7f1d1d] leading-relaxed">
+                            Access & download prohibited for role <strong>{currentUser.role}</strong>. Only Examination Centre Superintendents can decrypt papers.
+                          </p>
+                          <div className="flex items-center gap-1.5 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => switchRole('EXAMINATION_CENTRE', currentCentre.id)}
+                              className="flex-1 py-1.5 rounded bg-[#059669] hover:bg-[#047857] text-white font-bold text-[11px] transition shadow-xs flex items-center justify-center space-x-1"
+                            >
+                              <UserCheck className="w-3.5 h-3.5" />
+                              <span>Switch to Centre User</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => paper && handleRequestRelease(paper.id)}
+                              className="px-2 py-1.5 rounded bg-white text-[#991b1b] border border-[#fecaca] font-bold text-[10px] hover:bg-[#fee2e2] transition"
+                              title="Test security gate RBAC denial"
+                            >
+                              Test RBAC Gate
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -368,18 +506,20 @@ export const CentreView: React.FC = () => {
                         disabled={releaseInProgress || !paper}
                         onClick={() => paper && handleRequestRelease(paper.id)}
                         className={`w-full py-2.5 rounded-lg text-xs font-bold transition flex items-center justify-center space-x-2 shadow-sm ${
-                          isUnlocked
+                          isUnlocked && isCentreRole
                             ? 'bg-[#e95d2a] hover:bg-[#d44c1b] text-white'
                             : 'bg-[#222222] hover:bg-black text-white'
                         }`}
                       >
-                        {isUnlocked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4 text-[#e95d2a]" />}
+                        {isUnlocked && isCentreRole ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4 text-[#e95d2a]" />}
                         <span>
                           {releaseInProgress 
                             ? 'Evaluating 13 Security Gates...' 
-                            : isUnlocked 
-                              ? 'Request Decrypted Examination Paper' 
-                              : 'Request Early Release (Test Time-Lock Block)'}
+                            : !isCentreRole
+                              ? `Test Gate Release (Will Block ${currentUser.role})`
+                              : isUnlocked 
+                                ? 'Request Decrypted Examination Paper' 
+                                : 'Request Early Release (Test Time-Lock Block)'}
                         </span>
                       </button>
                     </div>
@@ -509,42 +649,62 @@ export const CentreView: React.FC = () => {
                 </div>
 
                 {/* Decrypted Question Paper Preview */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-bold text-[#222222] flex items-center space-x-1.5">
-                      <FileText className="w-4 h-4 text-[#059669]" />
-                      <span>Decrypted Official Examination Paper (Centre Print Dispatch)</span>
-                    </label>
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={() => handleCopyText(latestReleaseResult.decryptedText || '', 'paper')}
-                        className="px-2.5 py-1.5 rounded-lg bg-[#f4f4f6] hover:bg-[#e5e5ea] text-[#222222] text-[11px] font-bold flex items-center space-x-1 border border-[#e5e5ea]"
-                      >
-                        {copiedPaper ? <Check className="w-3.5 h-3.5 text-[#059669]" /> : <Copy className="w-3.5 h-3.5" />}
-                        <span>{copiedPaper ? 'Copied' : 'Copy Text'}</span>
-                      </button>
-                      {latestReleaseResult.exam && latestReleaseResult.paper && (
+                {isCentreRole ? (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-bold text-[#222222] flex items-center space-x-1.5">
+                        <FileText className="w-4 h-4 text-[#059669]" />
+                        <span>Decrypted Official Examination Paper (Centre Print Dispatch)</span>
+                      </label>
+                      <div className="flex items-center space-x-2">
                         <button
-                          onClick={() => handleDownloadPaper(latestReleaseResult.exam!, latestReleaseResult.paper!, latestReleaseResult.decryptedText || '')}
-                          className="px-2.5 py-1.5 rounded-lg bg-[#e95d2a] hover:bg-[#d44c1b] text-white text-[11px] font-bold flex items-center space-x-1 shadow-xs"
+                          onClick={() => handleCopyText(latestReleaseResult.decryptedText || '', 'paper')}
+                          className="px-2.5 py-1.5 rounded-lg bg-[#f4f4f6] hover:bg-[#e5e5ea] text-[#222222] text-[11px] font-bold flex items-center space-x-1 border border-[#e5e5ea]"
                         >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>Download Paper (.txt)</span>
+                          {copiedPaper ? <Check className="w-3.5 h-3.5 text-[#059669]" /> : <Copy className="w-3.5 h-3.5" />}
+                          <span>{copiedPaper ? 'Copied' : 'Copy Text'}</span>
                         </button>
-                      )}
-                      <button
-                        onClick={() => window.print()}
-                        className="px-2.5 py-1.5 rounded-lg bg-[#222222] hover:bg-black text-white text-[11px] font-bold flex items-center space-x-1 shadow-xs"
-                      >
-                        <Printer className="w-3.5 h-3.5" />
-                        <span>Print Paper</span>
-                      </button>
+                        {latestReleaseResult.exam && latestReleaseResult.paper && (
+                          <button
+                            onClick={() => handleDownloadPaper(latestReleaseResult.exam!, latestReleaseResult.paper!, latestReleaseResult.decryptedText || '')}
+                            className="px-2.5 py-1.5 rounded-lg bg-[#e95d2a] hover:bg-[#d44c1b] text-white text-[11px] font-bold flex items-center space-x-1 shadow-xs"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>Download Paper (.txt)</span>
+                          </button>
+                        )}
+                        <button
+                          onClick={handlePrintPaper}
+                          className="px-2.5 py-1.5 rounded-lg bg-[#222222] hover:bg-black text-white text-[11px] font-bold flex items-center space-x-1 shadow-xs"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                          <span>Print Paper</span>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="bg-[#f4f4f6] p-4 rounded-xl border border-[#e5e5ea] font-mono text-xs text-[#222222] max-h-80 overflow-y-auto whitespace-pre-wrap leading-relaxed select-text shadow-inner">
+                      {latestReleaseResult.decryptedText}
                     </div>
                   </div>
-                  <div className="bg-[#f4f4f6] p-4 rounded-xl border border-[#e5e5ea] font-mono text-xs text-[#222222] max-h-80 overflow-y-auto whitespace-pre-wrap leading-relaxed select-text shadow-inner">
-                    {latestReleaseResult.decryptedText}
+                ) : (
+                  <div className="p-4 bg-[#fef2f2] border border-[#fecaca] rounded-xl text-[#991b1b] space-y-2">
+                    <div className="flex items-center space-x-2 font-bold text-xs">
+                      <ShieldAlert className="w-4 h-4 text-[#ef4444]" />
+                      <span>Decrypted Content Masked & Download Prohibited</span>
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-[#7f1d1d]">
+                      Your active role is <strong>{currentUser.name} ({currentUser.role})</strong>. Under Zero-Trust Least-Privilege Separation of Duties, viewing decrypted question papers and downloading files is restricted exclusively to authenticated Examination Centre Superintendents (EXAMINATION_CENTRE).
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => switchRole('EXAMINATION_CENTRE', currentCentre.id)}
+                      className="px-3 py-1.5 rounded-lg bg-[#059669] hover:bg-[#047857] text-white text-xs font-bold transition shadow-xs inline-flex items-center space-x-1.5"
+                    >
+                      <UserCheck className="w-3.5 h-3.5" />
+                      <span>Switch to Centre Superintendent ({currentCentre.code})</span>
+                    </button>
                   </div>
-                </div>
+                )}
 
               </div>
             )}
@@ -631,43 +791,67 @@ export const CentreView: React.FC = () => {
                   </div>
 
                   {/* Official Question Paper Container */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="font-extrabold text-sm text-[#222222] flex items-center space-x-1.5">
-                        <FileText className="w-4 h-4 text-[#059669]" />
-                        <span>Decrypted Question Paper Text</span>
-                      </h4>
-                      <div className="flex items-center space-x-2">
-                        <button
-                          onClick={() => handleCopyText(latestReleaseResult.decryptedText || '', 'paper')}
-                          className="px-3 py-1.5 rounded-lg bg-[#f4f4f6] hover:bg-[#e5e5ea] text-[#222222] text-xs font-bold flex items-center space-x-1 border border-[#e5e5ea]"
-                        >
-                          {copiedPaper ? <Check className="w-3.5 h-3.5 text-[#059669]" /> : <Copy className="w-3.5 h-3.5" />}
-                          <span>{copiedPaper ? 'Copied' : 'Copy All'}</span>
-                        </button>
-                        {latestReleaseResult.exam && latestReleaseResult.paper && (
+                  {isCentreRole ? (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-extrabold text-sm text-[#222222] flex items-center space-x-1.5">
+                          <FileText className="w-4 h-4 text-[#059669]" />
+                          <span>Decrypted Question Paper Text</span>
+                        </h4>
+                        <div className="flex items-center space-x-2">
                           <button
-                            onClick={() => handleDownloadPaper(latestReleaseResult.exam!, latestReleaseResult.paper!, latestReleaseResult.decryptedText || '')}
-                            className="px-3 py-1.5 rounded-lg bg-[#e95d2a] hover:bg-[#d44c1b] text-white text-xs font-bold flex items-center space-x-1 shadow-xs"
+                            onClick={() => handleCopyText(latestReleaseResult.decryptedText || '', 'paper')}
+                            className="px-3 py-1.5 rounded-lg bg-[#f4f4f6] hover:bg-[#e5e5ea] text-[#222222] text-xs font-bold flex items-center space-x-1 border border-[#e5e5ea]"
                           >
-                            <Download className="w-3.5 h-3.5" />
-                            <span>Download File (.txt)</span>
+                            {copiedPaper ? <Check className="w-3.5 h-3.5 text-[#059669]" /> : <Copy className="w-3.5 h-3.5" />}
+                            <span>{copiedPaper ? 'Copied' : 'Copy All'}</span>
                           </button>
-                        )}
-                        <button
-                          onClick={() => window.print()}
-                          className="px-3 py-1.5 rounded-lg bg-[#222222] hover:bg-black text-white text-xs font-bold flex items-center space-x-1 shadow-xs"
-                        >
-                          <Printer className="w-3.5 h-3.5" />
-                          <span>Print</span>
-                        </button>
+                          {latestReleaseResult.exam && latestReleaseResult.paper && (
+                            <button
+                              onClick={() => handleDownloadPaper(latestReleaseResult.exam!, latestReleaseResult.paper!, latestReleaseResult.decryptedText || '')}
+                              className="px-3 py-1.5 rounded-lg bg-[#e95d2a] hover:bg-[#d44c1b] text-white text-xs font-bold flex items-center space-x-1 shadow-xs"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Download File (.txt)</span>
+                            </button>
+                          )}
+                          <button
+                            onClick={handlePrintPaper}
+                            className="px-3 py-1.5 rounded-lg bg-[#222222] hover:bg-black text-white text-xs font-bold flex items-center space-x-1 shadow-xs"
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                            <span>Print</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="bg-[#fcfcfd] p-5 rounded-xl border border-[#d1d5db] font-mono text-xs text-[#111827] max-h-96 overflow-y-auto whitespace-pre-wrap leading-relaxed shadow-xs">
+                        {latestReleaseResult.decryptedText}
                       </div>
                     </div>
-
-                    <div className="bg-[#fcfcfd] p-5 rounded-xl border border-[#d1d5db] font-mono text-xs text-[#111827] max-h-96 overflow-y-auto whitespace-pre-wrap leading-relaxed shadow-xs">
-                      {latestReleaseResult.decryptedText}
+                  ) : (
+                    <div className="p-5 bg-[#fef2f2] border-2 border-[#f87171] rounded-xl text-[#991b1b] text-center space-y-3">
+                      <div className="w-10 h-10 rounded-full bg-[#fee2e2] text-[#ef4444] flex items-center justify-center mx-auto">
+                        <Lock className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-extrabold text-sm text-[#7f1d1d]">
+                          Decrypted Paper Masked & Download Prohibited
+                        </h4>
+                        <p className="text-xs text-[#991b1b] max-w-lg mx-auto mt-1 leading-relaxed">
+                          You are authenticated as <strong>{currentUser.name} ({currentUser.role})</strong>.
+                          Under Zero-Trust Least Privilege, <strong>only authenticated Examination Centre Superintendents (EXAMINATION_CENTRE)</strong> can access, view, or download live question papers.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => switchRole('EXAMINATION_CENTRE', currentCentre.id)}
+                        className="px-4 py-2 rounded-lg bg-[#059669] hover:bg-[#047857] text-white font-bold text-xs transition shadow-sm inline-flex items-center space-x-1.5"
+                      >
+                        <UserCheck className="w-4 h-4" />
+                        <span>Switch to Centre Superintendent ({currentCentre.code}) to Access</span>
+                      </button>
                     </div>
-                  </div>
+                  )}
                 </>
               ) : (
                 /* Failure / Blocked Explanation */

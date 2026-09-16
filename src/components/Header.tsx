@@ -14,7 +14,8 @@ import {
   ChevronDown,
   Building2,
   FileCheck,
-  Database
+  Database,
+  Layers
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -56,7 +57,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenLogin, activeTab, setActiv
     { id: 'centre', label: 'Centre Release Station', icon: Building2, role: 'EXAMINATION_CENTRE' },
     { id: 'scenarios', label: 'Security Test Scenarios (1-7)', icon: Lock, badge: 'TESTS' },
     { id: 'audit', label: 'Audit Logs & SIEM', icon: ShieldAlert },
-    { id: 'architecture', label: 'Architecture & Prisma', icon: ShieldCheck, badge: 'SPECS' },
+    { id: 'architecture', label: 'Architecture & Methodology', icon: Layers, badge: 'SEC 3-5' },
   ];
 
   return (

@@ -23,7 +23,8 @@ import {
 export const AdminDashboard: React.FC<{ 
   onNavigateToRelease?: () => void;
   onNavigateToVault?: () => void;
-}> = ({ onNavigateToVault }) => {
+  onNavigateToArchitecture?: () => void;
+}> = ({ onNavigateToVault, onNavigateToArchitecture }) => {
   const { 
     currentUser, 
     papers, 
@@ -37,7 +38,8 @@ export const AdminDashboard: React.FC<{
     serverTime 
   } = useApp();
 
-  const [selectedPaperForApproval, setSelectedPaperForApproval] = useState<QuestionPaper | null>(null);
+  const [selectedPaperId, setSelectedPaperId] = useState<string | null>(null);
+  const selectedPaperForApproval = papers.find(p => p.id === selectedPaperId) || null;
   const [sealingInProgress, setSealingInProgress] = useState(false);
   const [sealFeedback, setSealFeedback] = useState<string | null>(null);
 
@@ -59,7 +61,7 @@ export const AdminDashboard: React.FC<{
       const ok = await sealPaper(paper.id);
       if (ok) {
         setSealFeedback('Paper successfully sealed with cryptographic SHA-256 fingerprint and Ed25519/RSA digital signature.');
-        setTimeout(() => setSelectedPaperForApproval(null), 1500);
+        setTimeout(() => setSelectedPaperId(null), 1500);
       } else {
         setSealFeedback('Sealing rejected: Requires minimum 3 of 5 authorized custodian threshold signatures.');
       }
@@ -93,6 +95,15 @@ export const AdminDashboard: React.FC<{
         </div>
 
         <div className="flex items-center space-x-2">
+          {onNavigateToArchitecture && (
+            <button
+              onClick={onNavigateToArchitecture}
+              className="px-3 py-2 rounded-lg bg-white hover:bg-[#f4f4f6] text-[#222222] border border-[#e5e5ea] text-xs font-bold transition flex items-center space-x-1.5 shadow-xs"
+            >
+              <Layers className="w-3.5 h-3.5 text-[#e95d2a]" />
+              <span>Architecture & Methodology</span>
+            </button>
+          )}
           {onNavigateToVault && (
             <button
               onClick={onNavigateToVault}
@@ -107,6 +118,34 @@ export const AdminDashboard: React.FC<{
             <div className="font-mono font-bold text-[#222222]">{serverTime.toLocaleTimeString()} UTC</div>
           </div>
         </div>
+      </div>
+
+      {/* Methodology & Main Idea Fast Callout */}
+      <div className="p-3.5 bg-[#222222] text-white rounded-xl border border-[#333333] shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+        <div className="flex items-center space-x-3">
+          <div className="w-7 h-7 rounded-lg bg-[#333333] text-[#e95d2a] flex items-center justify-center shrink-0">
+            <Layers className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="flex items-center space-x-2">
+              <span className="font-black text-white">Main Idea:</span>
+              <span className="text-[#f9fafb]">“No single point of compromise can reveal the complete question paper.”</span>
+            </div>
+            <span className="text-[11px] text-[#9ca3af] block mt-0.5">
+              10-Step Lifecycle: Secure Creation → AES-256 → Split Fragmentation → Threshold Secret Sharing → Multi-Level Approval → Digital Seal → SIEM Monitoring → Time-Lock → Controlled Release → Permanent Audit.
+            </span>
+          </div>
+        </div>
+
+        {onNavigateToArchitecture && (
+          <button
+            onClick={onNavigateToArchitecture}
+            className="px-3 py-1.5 rounded-lg bg-[#e95d2a] hover:bg-[#d44c1b] text-white font-bold text-xs shrink-0 transition flex items-center space-x-1"
+          >
+            <span>View Flow & Specs</span>
+            <ExternalLink className="w-3 h-3" />
+          </button>
+        )}
       </div>
 
       {/* KPI Stats Grid */}
@@ -249,7 +288,7 @@ export const AdminDashboard: React.FC<{
 
                       <td className="py-3 px-3 text-right">
                         <button
-                          onClick={() => setSelectedPaperForApproval(paper)}
+                          onClick={() => setSelectedPaperId(paper.id)}
                           className="px-2.5 py-1 rounded bg-[#222222] hover:bg-black text-white text-[11px] font-bold transition shadow-2xs"
                         >
                           Manage Custody
@@ -363,7 +402,7 @@ export const AdminDashboard: React.FC<{
                 </div>
               </div>
               <button 
-                onClick={() => setSelectedPaperForApproval(null)}
+                onClick={() => setSelectedPaperId(null)}
                 className="text-[#9ca3af] hover:text-white p-1"
               >
                 <X className="w-5 h-5" />
@@ -479,7 +518,7 @@ export const AdminDashboard: React.FC<{
               <div className="flex items-center justify-end space-x-3 pt-3 border-t border-[#e5e5ea]">
                 <button
                   type="button"
-                  onClick={() => setSelectedPaperForApproval(null)}
+                  onClick={() => setSelectedPaperId(null)}
                   className="px-4 py-2 rounded-lg bg-[#f4f4f6] hover:bg-[#e5e5ea] text-xs font-bold text-[#4b5563]"
                 >
                   Close

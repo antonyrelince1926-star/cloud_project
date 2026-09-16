@@ -28,14 +28,21 @@ const MainContent: React.FC = () => {
 
       {/* Main Content Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {activeTab === 'admin' && <AdminDashboard onNavigateToVault={() => setActiveTab('vault')} />}
+        {activeTab === 'admin' && (
+          <AdminDashboard 
+            onNavigateToVault={() => setActiveTab('vault')} 
+            onNavigateToArchitecture={() => setActiveTab('architecture')}
+          />
+        )}
         {activeTab === 'vault' && <VaultIntegrityDashboard />}
-        {activeTab === 'setter' && <SetterView />}
-        {activeTab === 'reviewer' && <ReviewerView />}
-        {activeTab === 'centre' && <CentreView />}
+        {activeTab === 'setter' && <SetterView onNavigateTab={(tab) => setActiveTab(tab)} />}
+        {activeTab === 'reviewer' && <ReviewerView onNavigateTab={(tab) => setActiveTab(tab)} />}
+        {activeTab === 'centre' && <CentreView onNavigateTab={(tab) => setActiveTab(tab)} />}
         {activeTab === 'scenarios' && <SecurityTestScenarios />}
         {activeTab === 'audit' && <AuditLogView />}
-        {activeTab === 'architecture' && <ArchitectureDeliverablesView />}
+        {activeTab === 'architecture' && (
+          <ArchitectureDeliverablesView onNavigateTab={(tab) => setActiveTab(tab)} />
+        )}
       </main>
 
       {/* MFA & Authentication Modal */}

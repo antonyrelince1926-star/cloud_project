@@ -89,6 +89,14 @@ export const SecurityTestScenarios: React.FC = () => {
     });
 
     appendLog('RBAC Guard intercepted request: HTTP 403 FORBIDDEN returned.');
+
+    // Prohibited action 2: Attempting paper release/decryption as Question Setter
+    appendLog('Attempting prohibited action 2: Question Setter calling attemptRelease() for qp-001...');
+    const releaseAttempt = await attemptRelease('qp-001', 'centre-101');
+    if (!releaseAttempt.success && releaseAttempt.record.status === 'BLOCKED_UNAUTHORIZED') {
+      appendLog(`Zero-Trust Interception: Non-centre user blocked from release/decryption.`);
+    }
+
     appendLog('Audit Log Event created: UNAUTHORIZED_ACCESS_ATTEMPT with CRITICAL severity.');
     setTestStatus(prev => ({ ...prev, 2: 'PASSED' }));
   };
@@ -194,6 +202,7 @@ export const SecurityTestScenarios: React.FC = () => {
     tamperFragment(paper.id, 2);
     appendLog('Tamper injected. Now attempting controlled release at Centre 101...');
 
+    switchRole('EXAMINATION_CENTRE', 'centre-101');
     const res = await attemptRelease(paper.id, 'centre-101');
 
     if (!res.success && res.record.status === 'BLOCKED_INTEGRITY') {
