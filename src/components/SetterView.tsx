@@ -36,6 +36,8 @@ export const SetterView: React.FC<{ onNavigateTab?: (tab: string) => void }> = (
   const [paperTitle, setPaperTitle] = useState('Advanced Quantum Computing & Cryptography');
   const [subject, setSubject] = useState('Computer Science & Physical Sciences');
   const [fileName, setFileName] = useState('Quantum_Crypto_2026_Final.pdf');
+  const [fileMimeType, setFileMimeType] = useState('application/pdf');
+  const [fileDataUrl, setFileDataUrl] = useState<string>('');
   const [autoSubmitForReview, setAutoSubmitForReview] = useState(true);
   const [createdPaperId, setCreatedPaperId] = useState<string | null>(null);
   const [content, setContent] = useState(`================================================================================
@@ -135,8 +137,8 @@ SECTION A (50 MARKS):
   const handleCreateAndEncrypt = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isSetter) {
-      // Auto-switch to QUESTION_SETTER to assist user
-      switchRole('QUESTION_SETTER');
+      alert(`Separation of Duties Violation: You are currently authenticated as ${currentUser.name} (${currentUser.role}). Administrators and Reviewers are strictly forbidden from setting or authoring question papers. Switch to the Question Setter persona to author papers.`);
+      return;
     }
     setIsEncrypting(true);
     setCreatedFeedback(null);
@@ -153,12 +155,14 @@ SECTION A (50 MARKS):
           examDate: scheduleDate,
           releaseTime: releaseIso,
           durationMinutes: Number(scheduleDuration)
-        }
+        },
+        autoSubmitForReview,
+        fileDataUrl,
+        fileMimeType
       );
       setCreatedPaperId(paperId);
 
       if (autoSubmitForReview) {
-        submitPaper(paperId);
         setCreatedFeedback(`Question Paper [${paperId}] encrypted (AES-256-GCM), locked to release schedule (${new Date(releaseIso || '').toLocaleTimeString()}), and successfully SUBMITTED for Academic Review!`);
       } else {
         setCreatedFeedback(`Question Paper [${paperId}] encrypted via AES-256-GCM and fragmented into Store A, B, and C as a DRAFT.`);
@@ -174,18 +178,60 @@ SECTION A (50 MARKS):
     const file = e.target.files?.[0];
     if (file) {
       setFileName(file.name);
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const text = ev.target?.result as string;
-        if (text) {
-          setContent(text);
+      setFileMimeType(file.type || (file.name.endsWith('.pdf') ? 'application/pdf' : 'text/plain'));
+
+      // 1. Read as Data URL so original binary document (PDF, Word, etc.) is preserved for 1:1 download upon release
+      const urlReader = new FileReader();
+      urlReader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        if (dataUrl) {
+          setFileDataUrl(dataUrl);
         }
       };
-      // For demo, if text or binary fallback
-      try {
-        reader.readAsText(file);
-      } catch {
-        setContent(`[Binary PDF file uploaded: ${file.name} - Size: ${file.size} bytes]`);
+      urlReader.readAsDataURL(file);
+
+      // 2. Read as Text / extract readable preview for reviewer & printing
+      const isPdf = file.name.toLowerCase().endsWith('.pdf');
+      const isDoc = file.name.toLowerCase().endsWith('.docx') || file.name.toLowerCase().endsWith('.doc');
+
+      if (isPdf || isDoc) {
+        const textReader = new FileReader();
+        textReader.onload = (ev) => {
+          const raw = ev.target?.result as string;
+          if (raw) {
+            // Attempt to extract readable text strings from PDF syntax: (text) Tj
+            const matches: string[] = [];
+            const regex = /\(([^)]+)\)\s*(?:Tj|'|")/g;
+            let match;
+            while ((match = regex.exec(raw)) !== null) {
+              const cleaned = match[1].replace(/\\([()\\])/g, '$1').trim();
+              if (cleaned.length > 2 && !cleaned.startsWith('Font') && !cleaned.startsWith('ProcSet') && !cleaned.startsWith('Identity')) {
+                matches.push(cleaned);
+              }
+            }
+
+            if (matches.length > 2) {
+              setContent(`================================================================================\nCONFIDENTIAL EXAMINATION QUESTION PAPER\nATTACHMENT: ${file.name} (${(file.size / 1024).toFixed(1)} KB)\n================================================================================\n${matches.join('\n')}\n================================================================================`);
+            } else {
+              setContent(`================================================================================\nCONFIDENTIAL COMPETITIVE EXAMINATION QUESTION PAPER\nORIGINAL DOCUMENT: ${file.name} (${(file.size / 1024).toFixed(1)} KB)\n================================================================================\n[Binary document attached and cryptographically secured: ${file.name}]\n\nSECTION A - EXAMINATION QUESTIONS:\n1. Question text uploaded from ${file.name}.\n2. Answer all questions within the prescribed exam duration.\n================================================================================\n(The original ${file.name} is stored in full binary fidelity and will be downloaded in original ${file.name.split('.').pop()?.toUpperCase()} format upon centre release)`);
+            }
+          }
+        };
+        try {
+          textReader.readAsText(file);
+        } catch {
+          setContent(`[Confidential Question Paper: ${file.name} - Size: ${(file.size / 1024).toFixed(1)} KB]\nReady for encryption and threshold fragmentation.`);
+        }
+      } else {
+        // Plain text, Markdown, CSV, etc.
+        const textReader = new FileReader();
+        textReader.onload = (ev) => {
+          const raw = ev.target?.result as string;
+          if (raw) {
+            setContent(raw);
+          }
+        };
+        textReader.readAsText(file);
       }
     }
   };
@@ -195,19 +241,19 @@ SECTION A (50 MARKS):
       
       {/* Role Notice if not Question Setter */}
       {!isSetter && (
-        <div className="bg-[#fffbeb] border border-[#fde68a] p-4 rounded-xl flex items-center justify-between text-xs text-[#92400e]">
+        <div className="bg-[#fffbeb] border border-[#fde68a] p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-[#92400e]">
           <div className="flex items-center space-x-2">
             <Info className="w-5 h-5 text-[#d97706] shrink-0" />
             <span>
-              You are currently logged in as <strong>{currentUser.name} ({currentUser.role})</strong>.
-              To create and upload papers, switch to the Question Setter role.
+              <strong>Separation of Duties RBAC Lock:</strong> You are currently authenticated as <strong>{currentUser.name} ({currentUser.role})</strong>.
+              Administrators and Reviewers are strictly barred from setting or authoring question papers. Only users with the <strong>QUESTION_SETTER</strong> role can encrypt and upload papers.
             </span>
           </div>
           <button
             onClick={() => switchRole('QUESTION_SETTER')}
-            className="px-3 py-1.5 rounded-lg bg-[#e95d2a] text-white font-bold hover:bg-[#d44c1b] transition shrink-0"
+            className="px-3 py-1.5 rounded-lg bg-[#e95d2a] text-white font-bold hover:bg-[#d44c1b] transition shrink-0 self-start sm:self-auto"
           >
-            Switch to Question Setter
+            Switch to Question Setter (Dr. Aris Thorne)
           </button>
         </div>
       )}
@@ -451,6 +497,9 @@ SECTION A (50 MARKS):
                 onChange={e => setContent(e.target.value)}
                 className="w-full px-3 py-2 border border-[#e5e5ea] rounded-lg text-xs font-mono bg-[#f4f4f6]/30 focus:ring-2 focus:ring-[#e95d2a] focus:outline-none leading-relaxed"
               />
+              <p className="mt-1 text-[11px] text-[#6b7280]">
+                <strong>Note on Content Fidelity:</strong> The text in this editor represents the exact plaintext that will be encrypted with AES-256-GCM. Once encrypted, the plaintext is purged from memory under Zero-Trust policy; only authorized Examination Centres can decrypt it during the exam window.
+              </p>
             </div>
 
             {/* Auto-Submit for Academic Review Checkbox */}
@@ -511,16 +560,19 @@ SECTION A (50 MARKS):
 
             <button
               type="submit"
-              disabled={isEncrypting}
-              className="w-full py-2.5 rounded-lg bg-[#e95d2a] hover:bg-[#d44c1b] text-white font-bold text-xs transition shadow-sm flex items-center justify-center space-x-2 disabled:opacity-50"
+              disabled={isEncrypting || !isSetter}
+              className="w-full py-2.5 rounded-lg bg-[#e95d2a] hover:bg-[#d44c1b] text-white font-bold text-xs transition shadow-sm flex items-center justify-center space-x-2 disabled:opacity-40 disabled:cursor-not-allowed"
+              title={!isSetter ? `Action Blocked: Only QUESTION_SETTER role can create papers. Current role: ${currentUser.role}` : ''}
             >
               <Lock className="w-4 h-4" />
               <span>
-                {isEncrypting 
-                  ? 'Encrypting & Fragmenting...' 
-                  : autoSubmitForReview 
-                    ? 'Encrypt AES-256-GCM, Fragment & Submit for Review' 
-                    : 'Encrypt AES-256-GCM & Save as Draft'}
+                {!isSetter
+                  ? `Authoring Blocked (${currentUser.role} Role - Must be QUESTION_SETTER)`
+                  : isEncrypting 
+                    ? 'Encrypting & Fragmenting...' 
+                    : autoSubmitForReview 
+                      ? 'Encrypt AES-256-GCM, Fragment & Submit for Review' 
+                      : 'Encrypt AES-256-GCM & Save as Draft'}
               </span>
             </button>
 

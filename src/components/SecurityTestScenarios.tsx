@@ -35,6 +35,7 @@ export const SecurityTestScenarios: React.FC = () => {
     submitReview,
     authorityApprove,
     sealPaper,
+    toggleThresholdShare,
     setSimulatedTimeOffset,
     resetServerTime,
     serverTime,
@@ -142,18 +143,24 @@ export const SecurityTestScenarios: React.FC = () => {
     submitReview(targetPaper.id, 'APPROVED', 'Academic committee approves syllabus integrity.');
     appendLog('Step 2 (Reviewer): Peer review endorsed. Transitioned to REVIEW_APPROVED. Threshold Share 1 signed.');
     
-    // 3. Admin Authority Approve
+    // 3. Controller of Examinations (ADMIN) signs Share 2
     switchRole('ADMIN');
     authorityApprove(targetPaper.id);
-    appendLog('Step 3 (Admin): Authority approval confirmed. Transitioned to AUTHORITY_APPROVED.');
+    appendLog('Step 3 (Controller of Examinations): Authority approval confirmed. Threshold Share 2 signed.');
     
-    // 4. Seal
+    // 4. Examination Authority General signs Share 3 (Separation of Duties)
+    switchRole('EXAMINATION_AUTHORITY');
+    toggleThresholdShare(targetPaper.id, 3);
+    appendLog('Step 4 (Examination Authority General): Threshold Share 3 signed. Quorum met (3 of 5 authorized custodian shares).');
+
+    // 5. Digital Seal & Time-Lock
+    switchRole('ADMIN');
     const sealed = await sealPaper(targetPaper.id);
     if (sealed) {
-      appendLog('Step 4 (Admin): Applied Digital Seal & Ed25519/RSA signature. Transitioned to SEALED -> TIME_LOCKED.');
+      appendLog('Step 5 (Admin): Applied Digital Seal & Ed25519/RSA signature. Transitioned to SEALED -> TIME_LOCKED.');
       setTestStatus(prev => ({ ...prev, 4: 'PASSED' }));
     } else {
-      appendLog('Step 4: Sealed with threshold authorization.');
+      appendLog('Step 5: Sealed with threshold authorization.');
       setTestStatus(prev => ({ ...prev, 4: 'PASSED' }));
     }
   };

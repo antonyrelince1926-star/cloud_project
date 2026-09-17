@@ -7,7 +7,10 @@ export type UserRole =
   | 'QUESTION_SETTER'
   | 'REVIEWER'
   | 'ADMIN'
-  | 'EXAMINATION_CENTRE';
+  | 'EXAMINATION_CENTRE'
+  | 'EXAMINATION_AUTHORITY'
+  | 'SECURITY_AUTHORITY'
+  | 'BACKUP_AUTHORITY';
 
 export type PaperStatus = 
   | 'DRAFT'
@@ -102,6 +105,8 @@ export interface QuestionPaper {
   authTag: string; // AES-GCM Auth tag
   originalFileName: string;
   fileSize: number; // in bytes
+  fileMimeType?: string; // MIME type of original document
+  fileDataUrl?: string; // Original file data URL for exact 1:1 file downloads
   sampleContent: string; // Sample decrypted questions preview for authorized release
   fragments: QuestionPaperFragment[];
   reviews: Review[];

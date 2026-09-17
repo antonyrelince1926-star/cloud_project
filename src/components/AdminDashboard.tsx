@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { QuestionPaper } from '../types';
 import { 
@@ -17,7 +17,8 @@ import {
   Layers, 
   Award,
   Fingerprint,
-  ExternalLink
+  ExternalLink,
+  Info
 } from 'lucide-react';
 
 export const AdminDashboard: React.FC<{ 
@@ -35,13 +36,27 @@ export const AdminDashboard: React.FC<{
     authorityApprove, 
     toggleThresholdShare, 
     sealPaper, 
-    serverTime 
+    serverTime,
+    switchRole
   } = useApp();
 
   const [selectedPaperId, setSelectedPaperId] = useState<string | null>(null);
   const selectedPaperForApproval = papers.find(p => p.id === selectedPaperId) || null;
   const [sealingInProgress, setSealingInProgress] = useState(false);
   const [sealFeedback, setSealFeedback] = useState<string | null>(null);
+
+  // Close modal on Escape key press
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedPaperId(null);
+      }
+    };
+    if (selectedPaperId) {
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [selectedPaperId]);
 
   // Metrics
   const totalPapers = papers.length;
@@ -244,6 +259,7 @@ export const AdminDashboard: React.FC<{
 
                       <td className="py-3 px-3">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${
+                          paper.status === 'REJECTED' ? 'bg-[#fef2f2] text-[#991b1b] border border-[#fecaca]' :
                           paper.status === 'RELEASED' ? 'bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0]' :
                           paper.status === 'TIME_LOCKED' ? 'bg-[#fef3ee] text-[#e95d2a] border border-[#fde2d4]' :
                           paper.status === 'REVIEW_APPROVED' || paper.status === 'AUTHORITY_APPROVED' ? 'bg-[#eff6ff] text-[#1e40af] border border-[#bfdbfe]' :
@@ -384,142 +400,237 @@ export const AdminDashboard: React.FC<{
       </div>
 
       {/* Manage Custody & Threshold Modal */}
-      {selectedPaperForApproval && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-xl shadow-2xl border border-[#e5e5ea] w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-            
-            {/* Modal Header */}
-            <div className="bg-[#222222] text-white px-6 py-4 flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Key className="w-5 h-5 text-[#e95d2a]" />
-                <div>
-                  <h3 className="font-bold text-sm tracking-tight">
-                    Threshold Key Custody & Digital Seal Engine
-                  </h3>
-                  <div className="text-[11px] text-[#9ca3af] font-mono">
-                    {selectedPaperForApproval.examCode} — {selectedPaperForApproval.title}
-                  </div>
-                </div>
-              </div>
-              <button 
-                onClick={() => setSelectedPaperId(null)}
-                className="text-[#9ca3af] hover:text-white p-1"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {selectedPaperForApproval && (() => {
+        const isPaperRejected = selectedPaperForApproval.status === 'REJECTED' || selectedPaperForApproval.reviews.some(r => r.decision === 'REJECTED');
+        const latestRejectReview = selectedPaperForApproval.reviews.find(r => r.decision === 'REJECTED');
+        const canSeal = currentUser.role === 'ADMIN' || currentUser.role === 'EXAMINATION_AUTHORITY';
+        const isReviewApproved = selectedPaperForApproval.status === 'REVIEW_APPROVED' || selectedPaperForApproval.status === 'AUTHORITY_APPROVED';
+        const approvedCount = selectedPaperForApproval.thresholdShares.filter(s => s.approved).length;
+        const isQuorumMet = approvedCount >= 3;
 
-            <div className="p-6 space-y-5">
+        return (
+          <div 
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-4 overflow-y-auto"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setSelectedPaperId(null);
+            }}
+          >
+            <div className="bg-white rounded-xl shadow-2xl border border-[#e5e5ea] w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200 my-auto">
               
-              {/* Status Header */}
-              <div className="grid grid-cols-3 gap-3 bg-[#f4f4f6] p-3 rounded-lg border border-[#e5e5ea] text-xs">
-                <div>
-                  <span className="text-[#6b7280] block text-[10px] font-bold">LIFECYCLE STATUS:</span>
-                  <span className="font-bold text-[#222222]">{selectedPaperForApproval.status}</span>
-                </div>
-                <div>
-                  <span className="text-[#6b7280] block text-[10px] font-bold">DIGITAL SEAL:</span>
-                  <span className={`font-bold ${selectedPaperForApproval.sealed ? 'text-[#e95d2a]' : 'text-[#6b7280]'}`}>
-                    {selectedPaperForApproval.sealed ? '🔒 SEALED (IMMUTABLE)' : 'UNSEALED'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[#6b7280] block text-[10px] font-bold">MASTER SHA-256:</span>
-                  <span className="font-mono text-[10px] text-[#222222] truncate block">
-                    {selectedPaperForApproval.fileHash.slice(0, 16)}...
-                  </span>
-                </div>
-              </div>
-
-              {/* 3-of-5 Custodian Threshold Authorization Shares */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-bold text-[#222222] flex items-center space-x-1.5">
-                    <Layers className="w-4 h-4 text-[#e95d2a]" />
-                    <span>3-of-5 Custody Authorization Keyring</span>
-                  </label>
-                  <span className="text-[11px] font-mono text-[#6b7280]">
-                    Required: <strong>3/5 Signatures</strong>
-                  </span>
-                </div>
-
-                <div className="space-y-2">
-                  {selectedPaperForApproval.thresholdShares.map(share => (
-                    <div 
-                      key={share.shareIndex}
-                      className={`p-2.5 rounded-lg border flex items-center justify-between text-xs transition ${
-                        share.approved 
-                          ? 'bg-[#ecfdf5] border-[#a7f3d0] text-[#065f46]' 
-                          : 'bg-[#f4f4f6] border-[#e5e5ea] text-[#4b5563]'
-                      }`}
-                    >
-                      <div className="flex items-center space-x-2.5">
-                        <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                          share.approved ? 'bg-[#10b981] text-white' : 'bg-[#e5e5ea] text-[#6b7280]'
-                        }`}>
-                          {share.shareIndex}
-                        </div>
-                        <div>
-                          <div className="font-bold text-[#222222]">{share.holderTitle}</div>
-                          <div className="text-[10px] text-[#6b7280]">Role: {share.holderRole}</div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center space-x-2">
-                        {share.approved ? (
-                          <span className="text-[10px] font-mono text-[#065f46] font-bold flex items-center">
-                            <Check className="w-3.5 h-3.5 mr-1 text-[#10b981]" /> SIGNED
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-[#6b7280]">Awaiting Signature</span>
-                        )}
-
-                        {!selectedPaperForApproval.sealed && (
-                          <button
-                            onClick={() => toggleThresholdShare(selectedPaperForApproval.id, share.shareIndex)}
-                            className={`px-2 py-1 rounded text-[11px] font-bold transition ${
-                              share.approved
-                                ? 'bg-white text-[#991b1b] border border-[#fecaca] hover:bg-[#fef2f2]'
-                                : 'bg-[#222222] text-white hover:bg-black'
-                            }`}
-                          >
-                            {share.approved ? 'Revoke' : 'Sign Share'}
-                          </button>
-                        )}
-                      </div>
+              {/* Modal Header - Pinned at Top */}
+              <div className="bg-[#222222] text-white px-5 sm:px-6 py-3.5 sm:py-4 flex items-center justify-between shrink-0 border-b border-[#333333]">
+                <div className="flex items-center space-x-2.5 min-w-0 pr-2">
+                  <Key className="w-5 h-5 text-[#e95d2a] shrink-0" />
+                  <div className="min-w-0">
+                    <h3 className="font-bold text-sm tracking-tight truncate">
+                      Threshold Key Custody & Digital Seal Engine
+                    </h3>
+                    <div className="text-[11px] text-[#9ca3af] font-mono truncate">
+                      {selectedPaperForApproval.examCode} — {selectedPaperForApproval.title}
                     </div>
-                  ))}
+                  </div>
                 </div>
+                <button 
+                  type="button"
+                  onClick={() => setSelectedPaperId(null)}
+                  className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-[#e5e5ea] hover:text-white flex items-center justify-center transition shrink-0 ml-2"
+                  aria-label="Close dialog"
+                  title="Close (Esc)"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
 
-              {/* Digital Signature Fingerprint Details */}
-              {selectedPaperForApproval.signature && (
-                <div className="p-3 bg-[#fef3ee] rounded-lg border border-[#fde2d4] text-xs">
-                  <div className="flex items-center space-x-1.5 text-[#e95d2a] font-bold mb-1">
-                    <Fingerprint className="w-4 h-4" />
-                    <span>Cryptographic Digital Signature Fingerprint</span>
+              {/* Modal Scrollable Body */}
+              <div className="p-5 sm:p-6 space-y-4 overflow-y-auto flex-1">
+                {/* Rejection Security Notice */}
+                {isPaperRejected && (
+                  <div className="p-3.5 bg-[#fef2f2] border border-[#fecaca] rounded-lg text-xs text-[#991b1b] space-y-1.5">
+                    <div className="font-bold flex items-center space-x-1.5 text-sm text-[#dc2626]">
+                      <AlertTriangle className="w-4 h-4 shrink-0 text-[#dc2626]" />
+                      <span>SEPARATION OF DUTIES ENFORCEMENT: ACADEMICALLY REJECTED</span>
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-[#7f1d1d]">
+                      This question paper was <strong>REJECTED</strong> by Academic Reviewer ({latestRejectReview?.reviewerName || 'Prof. Elena Rostova'}). Under strict Zero-Trust governance, administrators and authorities are <strong>strictly barred</strong> from signing custody keys or applying digital master seals to rejected papers. Separation of duties prevents administrative override of academic rejections. The question setter must author a revised version.
+                    </p>
+                    {latestRejectReview?.comments && (
+                      <div className="p-2 bg-white rounded border border-[#fecaca] text-[10px] font-mono text-[#7f1d1d]">
+                        Reviewer Feedback: &quot;{latestRejectReview.comments}&quot;
+                      </div>
+                    )}
                   </div>
-                  <div className="font-mono text-[10px] text-[#222222] break-all bg-white p-2 rounded border border-[#e5e5ea]">
-                    {selectedPaperForApproval.signature}
-                  </div>
-                  <div className="text-[10px] text-[#6b7280] mt-1">
-                    Public Key: <span className="font-mono">{selectedPaperForApproval.signaturePublicKey}</span>
+                )}
+
+                {/* Zero-Trust RBAC Multi-Custodian Notice */}
+                <div className="p-3 bg-[#f8fafc] border border-[#e2e8f0] rounded-lg text-xs text-[#334155] flex items-start space-x-2.5">
+                  <ShieldCheck className="w-4 h-4 text-[#e95d2a] shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <div className="font-bold text-[#0f172a]">
+                      Zero-Trust Threshold Custody: Strict Separation of Duties
+                    </div>
+                    <div className="text-[11px] text-[#475569] leading-relaxed">
+                      You are authenticated as <strong>{currentUser.name} ({currentUser.role})</strong>. 
+                      Under cryptographic quorum governance, <strong>each of the 5 custody shares can ONLY be signed by its specific designated custodian authority</strong>. The Administrator cannot proxy or sign on behalf of other authorities. Minimum 3 authorized custodian signatures are required to unlock paper sealing.
+                    </div>
                   </div>
                 </div>
-              )}
 
-              {sealFeedback && (
-                <div className="p-3 bg-[#ecfdf5] border border-[#a7f3d0] rounded-lg text-xs text-[#065f46] font-semibold">
-                  {sealFeedback}
+                {/* Pre-review Warning if still in DRAFT or SUBMITTED */}
+                {!isPaperRejected && (selectedPaperForApproval.status === 'DRAFT' || selectedPaperForApproval.status === 'SUBMITTED' || selectedPaperForApproval.status === 'UNDER_REVIEW') && (
+                  <div className="p-3 bg-[#eff6ff] border border-[#bfdbfe] rounded-lg text-xs text-[#1e40af] flex items-center space-x-2">
+                    <Info className="w-4 h-4 text-[#3b82f6] shrink-0" />
+                    <span>
+                      Awaiting Academic Review: Reviewer must verify syllabus compliance and approve the paper before custody shares can be signed.
+                    </span>
+                  </div>
+                )}
+
+                {/* Status Header */}
+                <div className="grid grid-cols-3 gap-3 bg-[#f4f4f6] p-3 rounded-lg border border-[#e5e5ea] text-xs">
+                  <div>
+                    <span className="text-[#6b7280] block text-[10px] font-bold">LIFECYCLE STATUS:</span>
+                    <span className={`font-bold ${isPaperRejected ? 'text-[#dc2626]' : 'text-[#222222]'}`}>
+                      {selectedPaperForApproval.status}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[#6b7280] block text-[10px] font-bold">DIGITAL SEAL:</span>
+                    <span className={`font-bold ${selectedPaperForApproval.sealed ? 'text-[#e95d2a]' : 'text-[#6b7280]'}`}>
+                      {selectedPaperForApproval.sealed ? '🔒 SEALED (IMMUTABLE)' : 'UNSEALED'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[#6b7280] block text-[10px] font-bold">MASTER SHA-256:</span>
+                    <span className="font-mono text-[10px] text-[#222222] truncate block">
+                      {selectedPaperForApproval.fileHash.slice(0, 16)}...
+                    </span>
+                  </div>
                 </div>
-              )}
 
-              {/* Action Buttons */}
-              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-[#e5e5ea]">
+                {/* 3-of-5 Custodian Threshold Authorization Shares */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-bold text-[#222222] flex items-center space-x-1.5">
+                      <Layers className="w-4 h-4 text-[#e95d2a]" />
+                      <span>3-of-5 Custody Authorization Keyring</span>
+                    </label>
+                    <span className="text-[11px] font-mono text-[#6b7280]">
+                      Required: <strong>3/5 Signatures</strong> (Current: {approvedCount}/5)
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {selectedPaperForApproval.thresholdShares.map(share => {
+                      const isCustodian = currentUser.role === share.holderRole;
+
+                      return (
+                        <div 
+                          key={share.shareIndex}
+                          className={`p-2.5 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between text-xs gap-2 transition ${
+                            share.approved 
+                              ? 'bg-[#ecfdf5] border-[#a7f3d0] text-[#065f46]' 
+                              : isCustodian
+                                ? 'bg-[#fef9f6] border-[#fde2d4] text-[#222222]'
+                                : 'bg-[#f4f4f6] border-[#e5e5ea] text-[#4b5563]'
+                          }`}
+                        >
+                          <div className="flex items-center space-x-2.5">
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
+                              share.approved ? 'bg-[#10b981] text-white' : isCustodian ? 'bg-[#e95d2a] text-white' : 'bg-[#e5e5ea] text-[#6b7280]'
+                            }`}>
+                              {share.shareIndex}
+                            </div>
+                            <div>
+                              <div className="font-bold text-[#222222] flex items-center space-x-2">
+                                <span>{share.holderTitle}</span>
+                                {isCustodian && (
+                                  <span className="text-[9px] font-bold px-1.5 py-0.2 bg-[#e95d2a] text-white rounded">
+                                    YOU ARE CUSTODIAN
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-[#6b7280]">
+                                Authorized Role: <span className="font-mono font-semibold">{share.holderRole}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center space-x-2 self-end sm:self-center">
+                            {share.approved ? (
+                              <span className="text-[10px] font-mono text-[#065f46] font-bold flex items-center">
+                                <Check className="w-3.5 h-3.5 mr-1 text-[#10b981]" /> SIGNED
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-[#6b7280]">Awaiting Signature</span>
+                            )}
+
+                            {!selectedPaperForApproval.sealed && (
+                              isCustodian ? (
+                                <button
+                                  disabled={isPaperRejected || !isReviewApproved}
+                                  onClick={() => toggleThresholdShare(selectedPaperForApproval.id, share.shareIndex)}
+                                  className={`px-3 py-1 rounded text-[11px] font-bold transition disabled:opacity-40 disabled:cursor-not-allowed ${
+                                    share.approved
+                                      ? 'bg-white text-[#991b1b] border border-[#fecaca] hover:bg-[#fef2f2]'
+                                      : 'bg-[#e95d2a] text-white hover:bg-[#d44c1b]'
+                                  }`}
+                                  title={
+                                    isPaperRejected 
+                                      ? 'Blocked: Paper was rejected by academic reviewer' 
+                                      : !isReviewApproved 
+                                        ? 'Blocked: Paper must be approved by Academic Reviewer first' 
+                                        : `Sign share as ${currentUser.name}`
+                                  }
+                                >
+                                  {share.approved ? 'Revoke' : 'Sign My Share'}
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => switchRole(share.holderRole)}
+                                  className="px-2 py-1 rounded text-[10px] font-semibold bg-white hover:bg-[#e5e5ea] text-[#4b5563] border border-[#d1d1d6] transition flex items-center space-x-1"
+                                  title={`Switch persona to ${share.holderRole} to sign this share`}
+                                >
+                                  <span>Switch to {share.holderRole === 'EXAMINATION_AUTHORITY' ? 'Exam Auth' : share.holderRole === 'SECURITY_AUTHORITY' ? 'Cyber Sec' : share.holderRole === 'BACKUP_AUTHORITY' ? 'Backup Escrow' : share.holderRole}</span>
+                                </button>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Digital Signature Fingerprint Details */}
+                {selectedPaperForApproval.signature && (
+                  <div className="p-3 bg-[#fef3ee] rounded-lg border border-[#fde2d4] text-xs">
+                    <div className="flex items-center space-x-1.5 text-[#e95d2a] font-bold mb-1">
+                      <Fingerprint className="w-4 h-4" />
+                      <span>Cryptographic Digital Signature Fingerprint</span>
+                    </div>
+                    <div className="font-mono text-[10px] text-[#222222] break-all bg-white p-2 rounded border border-[#e5e5ea]">
+                      {selectedPaperForApproval.signature}
+                    </div>
+                    <div className="text-[10px] text-[#6b7280] mt-1">
+                      Public Key: <span className="font-mono">{selectedPaperForApproval.signaturePublicKey}</span>
+                    </div>
+                  </div>
+                )}
+
+                {sealFeedback && (
+                  <div className="p-3 bg-[#ecfdf5] border border-[#a7f3d0] rounded-lg text-xs text-[#065f46] font-semibold">
+                    {sealFeedback}
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer - Pinned at Bottom */}
+              <div className="px-5 sm:px-6 py-3.5 bg-[#fbfbfb] border-t border-[#e5e5ea] flex items-center justify-end space-x-3 shrink-0">
                 <button
                   type="button"
                   onClick={() => setSelectedPaperId(null)}
-                  className="px-4 py-2 rounded-lg bg-[#f4f4f6] hover:bg-[#e5e5ea] text-xs font-bold text-[#4b5563]"
+                  className="px-4 py-2 rounded-lg bg-white hover:bg-[#f4f4f6] text-xs font-bold text-[#4b5563] border border-[#e5e5ea] transition"
                 >
                   Close
                 </button>
@@ -527,9 +638,18 @@ export const AdminDashboard: React.FC<{
                 {!selectedPaperForApproval.sealed ? (
                   <button
                     type="button"
-                    disabled={sealingInProgress}
+                    disabled={sealingInProgress || isPaperRejected || !canSeal || !isQuorumMet}
                     onClick={() => handleSealClick(selectedPaperForApproval)}
-                    className="px-4 py-2 rounded-lg bg-[#e95d2a] hover:bg-[#d44c1b] text-white text-xs font-bold transition shadow-sm flex items-center space-x-1.5 disabled:opacity-50"
+                    className="px-4 py-2 rounded-lg bg-[#e95d2a] hover:bg-[#d44c1b] text-white text-xs font-bold transition shadow-sm flex items-center space-x-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                    title={
+                      isPaperRejected 
+                        ? 'Blocked: Cannot seal an academically rejected paper' 
+                        : !canSeal 
+                          ? 'Blocked: Only ADMIN or EXAMINATION_AUTHORITY can apply digital seal' 
+                          : !isQuorumMet 
+                            ? 'Blocked: Requires at least 3 of 5 custodian signatures' 
+                            : ''
+                    }
                   >
                     <Lock className="w-4 h-4" />
                     <span>{sealingInProgress ? 'Sealing...' : 'Apply Digital Seal & Time-Lock'}</span>
@@ -543,10 +663,9 @@ export const AdminDashboard: React.FC<{
               </div>
 
             </div>
-
           </div>
-        </div>
-      )}
+        );
+      })()}
 
     </div>
   );

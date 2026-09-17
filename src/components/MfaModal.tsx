@@ -84,7 +84,35 @@ export const MfaModal: React.FC<MfaModalProps> = ({ isOpen, onClose }) => {
                 onClick={() => { setEmail('admin@exam-sec.gov.in'); setPassword('password123'); }}
                 className="px-2 py-1 bg-white hover:bg-[#e95d2a] hover:text-white rounded border border-[#e5e5ea] text-[11px] text-left transition font-medium"
               >
-                Admin (Authority)
+                Admin (Controller)
+              </button>
+              <button 
+                type="button"
+                onClick={() => { setEmail('exam-authority@exam-sec.gov.in'); setPassword('password123'); }}
+                className="px-2 py-1 bg-white hover:bg-[#1e40af] hover:text-white rounded border border-[#e5e5ea] text-[11px] text-left transition font-medium"
+              >
+                Exam Authority General
+              </button>
+              <button 
+                type="button"
+                onClick={() => { setEmail('cso@exam-sec.gov.in'); setPassword('password123'); }}
+                className="px-2 py-1 bg-white hover:bg-[#991b1b] hover:text-white rounded border border-[#e5e5ea] text-[11px] text-left transition font-medium"
+              >
+                Cyber Security Officer
+              </button>
+              <button 
+                type="button"
+                onClick={() => { setEmail('escrow@exam-sec.gov.in'); setPassword('password123'); }}
+                className="px-2 py-1 bg-white hover:bg-[#6b21a8] hover:text-white rounded border border-[#e5e5ea] text-[11px] text-left transition font-medium"
+              >
+                Backup Escrow Custodian
+              </button>
+              <button 
+                type="button"
+                onClick={() => { setEmail('reviewer@exam-sec.gov.in'); setPassword('password123'); }}
+                className="px-2 py-1 bg-white hover:bg-[#4b5563] hover:text-white rounded border border-[#e5e5ea] text-[11px] text-left transition font-medium"
+              >
+                Academic Reviewer
               </button>
               <button 
                 type="button"
@@ -92,20 +120,6 @@ export const MfaModal: React.FC<MfaModalProps> = ({ isOpen, onClose }) => {
                 className="px-2 py-1 bg-white hover:bg-[#e95d2a] hover:text-white rounded border border-[#e5e5ea] text-[11px] text-left transition font-medium"
               >
                 Question Setter
-              </button>
-              <button 
-                type="button"
-                onClick={() => { setEmail('reviewer@exam-sec.gov.in'); setPassword('password123'); }}
-                className="px-2 py-1 bg-white hover:bg-[#e95d2a] hover:text-white rounded border border-[#e5e5ea] text-[11px] text-left transition font-medium"
-              >
-                Reviewer
-              </button>
-              <button 
-                type="button"
-                onClick={() => { setEmail('centre101@exam-sec.gov.in'); setPassword('password123'); }}
-                className="px-2 py-1 bg-white hover:bg-[#e95d2a] hover:text-white rounded border border-[#e5e5ea] text-[11px] text-left transition font-medium"
-              >
-                Exam Centre 101
               </button>
             </div>
           </div>

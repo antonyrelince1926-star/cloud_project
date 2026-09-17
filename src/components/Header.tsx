@@ -43,10 +43,13 @@ export const Header: React.FC<HeaderProps> = ({ onOpenLogin, activeTab, setActiv
   const isSecure = activeCriticalAlerts === 0;
 
   const roleLabels: Record<UserRole, { label: string; badgeBg: string }> = {
-    ADMIN: { label: 'Examination Authority (Admin)', badgeBg: 'bg-[#222222] text-white' },
+    ADMIN: { label: 'Controller of Examinations (Admin)', badgeBg: 'bg-[#222222] text-white' },
     QUESTION_SETTER: { label: 'Question Setter', badgeBg: 'bg-[#e95d2a] text-white' },
     REVIEWER: { label: 'Academic Reviewer', badgeBg: 'bg-[#4b5563] text-white' },
     EXAMINATION_CENTRE: { label: 'Examination Centre', badgeBg: 'bg-[#059669] text-white' },
+    EXAMINATION_AUTHORITY: { label: 'Examination Authority General', badgeBg: 'bg-[#1e40af] text-white' },
+    SECURITY_AUTHORITY: { label: 'Chief Cyber Security Officer', badgeBg: 'bg-[#991b1b] text-white' },
+    BACKUP_AUTHORITY: { label: 'Backup Custodian Keyring', badgeBg: 'bg-[#6b21a8] text-white' },
   };
 
   const navItems = [
@@ -188,24 +191,24 @@ export const Header: React.FC<HeaderProps> = ({ onOpenLogin, activeTab, setActiv
 
               {roleDropdownOpen && (
                 <div className="absolute right-0 mt-2 w-72 bg-white rounded-lg shadow-xl border border-[#e5e5ea] p-2 text-xs z-50">
-                  <div className="px-2 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[#6b7280] border-b border-[#f4f4f6] mb-1">
-                    Simulate Persona / Role:
+                  <div className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#6b7280] border-b border-[#f4f4f6] mb-1">
+                    Core Operational Roles:
                   </div>
                   
                   <button
                     onClick={() => { switchRole('ADMIN'); setRoleDropdownOpen(false); }}
-                    className="w-full text-left px-2.5 py-2 rounded hover:bg-[#f4f4f6] flex items-start space-x-2.5 transition"
+                    className="w-full text-left px-2.5 py-1.5 rounded hover:bg-[#f4f4f6] flex items-start space-x-2.5 transition"
                   >
                     <div className="w-6 h-6 rounded bg-[#222222] text-white flex items-center justify-center text-xs font-bold mt-0.5">A</div>
                     <div>
                       <div className="font-bold text-[#222222]">Director Marcus Vance</div>
-                      <div className="text-[11px] text-[#6b7280]">Role: ADMIN (Examination Authority)</div>
+                      <div className="text-[11px] text-[#6b7280]">Role: ADMIN (Controller of Exams)</div>
                     </div>
                   </button>
 
                   <button
                     onClick={() => { switchRole('QUESTION_SETTER'); setRoleDropdownOpen(false); }}
-                    className="w-full text-left px-2.5 py-2 rounded hover:bg-[#f4f4f6] flex items-start space-x-2.5 transition"
+                    className="w-full text-left px-2.5 py-1.5 rounded hover:bg-[#f4f4f6] flex items-start space-x-2.5 transition"
                   >
                     <div className="w-6 h-6 rounded bg-[#e95d2a] text-white flex items-center justify-center text-xs font-bold mt-0.5">S</div>
                     <div>
@@ -216,18 +219,18 @@ export const Header: React.FC<HeaderProps> = ({ onOpenLogin, activeTab, setActiv
 
                   <button
                     onClick={() => { switchRole('REVIEWER'); setRoleDropdownOpen(false); }}
-                    className="w-full text-left px-2.5 py-2 rounded hover:bg-[#f4f4f6] flex items-start space-x-2.5 transition"
+                    className="w-full text-left px-2.5 py-1.5 rounded hover:bg-[#f4f4f6] flex items-start space-x-2.5 transition"
                   >
                     <div className="w-6 h-6 rounded bg-[#4b5563] text-white flex items-center justify-center text-xs font-bold mt-0.5">R</div>
                     <div>
                       <div className="font-bold text-[#222222]">Prof. Elena Rostova</div>
-                      <div className="text-[11px] text-[#6b7280]">Role: REVIEWER</div>
+                      <div className="text-[11px] text-[#6b7280]">Role: REVIEWER (Share 1 Custodian)</div>
                     </div>
                   </button>
 
                   <button
                     onClick={() => { switchRole('EXAMINATION_CENTRE', 'centre-101'); setRoleDropdownOpen(false); }}
-                    className="w-full text-left px-2.5 py-2 rounded hover:bg-[#f4f4f6] flex items-start space-x-2.5 transition"
+                    className="w-full text-left px-2.5 py-1.5 rounded hover:bg-[#f4f4f6] flex items-start space-x-2.5 transition"
                   >
                     <div className="w-6 h-6 rounded bg-[#059669] text-white flex items-center justify-center text-xs font-bold mt-0.5">C1</div>
                     <div>
@@ -238,12 +241,49 @@ export const Header: React.FC<HeaderProps> = ({ onOpenLogin, activeTab, setActiv
 
                   <button
                     onClick={() => { switchRole('EXAMINATION_CENTRE', 'centre-102'); setRoleDropdownOpen(false); }}
-                    className="w-full text-left px-2.5 py-2 rounded hover:bg-[#f4f4f6] flex items-start space-x-2.5 transition"
+                    className="w-full text-left px-2.5 py-1.5 rounded hover:bg-[#f4f4f6] flex items-start space-x-2.5 transition"
                   >
                     <div className="w-6 h-6 rounded bg-[#059669] text-white flex items-center justify-center text-xs font-bold mt-0.5">C2</div>
                     <div>
                       <div className="font-bold text-[#222222]">Officer T. Chen</div>
                       <div className="text-[11px] text-[#6b7280]">Role: CENTRE 102 (Capitol)</div>
+                    </div>
+                  </button>
+
+                  <div className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#6b7280] border-t border-b border-[#f4f4f6] my-1">
+                    Threshold Key Custodians (3-of-5):
+                  </div>
+
+                  <button
+                    onClick={() => { switchRole('EXAMINATION_AUTHORITY'); setRoleDropdownOpen(false); }}
+                    className="w-full text-left px-2.5 py-1.5 rounded hover:bg-[#f4f4f6] flex items-start space-x-2.5 transition"
+                  >
+                    <div className="w-6 h-6 rounded bg-[#1e40af] text-white flex items-center justify-center text-xs font-bold mt-0.5">EA</div>
+                    <div>
+                      <div className="font-bold text-[#222222]">Dr. Rajeshwari Sen</div>
+                      <div className="text-[11px] text-[#6b7280]">Role: EXAM_AUTHORITY (Share 3)</div>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => { switchRole('SECURITY_AUTHORITY'); setRoleDropdownOpen(false); }}
+                    className="w-full text-left px-2.5 py-1.5 rounded hover:bg-[#f4f4f6] flex items-start space-x-2.5 transition"
+                  >
+                    <div className="w-6 h-6 rounded bg-[#991b1b] text-white flex items-center justify-center text-xs font-bold mt-0.5">SA</div>
+                    <div>
+                      <div className="font-bold text-[#222222]">Vikram Malhotra</div>
+                      <div className="text-[11px] text-[#6b7280]">Role: SECURITY_AUTHORITY (Share 4)</div>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => { switchRole('BACKUP_AUTHORITY'); setRoleDropdownOpen(false); }}
+                    className="w-full text-left px-2.5 py-1.5 rounded hover:bg-[#f4f4f6] flex items-start space-x-2.5 transition"
+                  >
+                    <div className="w-6 h-6 rounded bg-[#6b21a8] text-white flex items-center justify-center text-xs font-bold mt-0.5">BA</div>
+                    <div>
+                      <div className="font-bold text-[#222222]">HSM Escrow Custodian</div>
+                      <div className="text-[11px] text-[#6b7280]">Role: BACKUP_AUTHORITY (Share 5)</div>
                     </div>
                   </button>
 

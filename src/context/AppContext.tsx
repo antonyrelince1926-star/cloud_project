@@ -59,7 +59,10 @@ interface AppContextType {
     subject: string, 
     content: string, 
     fileName: string,
-    releaseSchedule?: { examDate?: string; releaseTime?: string; durationMinutes?: number }
+    releaseSchedule?: { examDate?: string; releaseTime?: string; durationMinutes?: number },
+    autoSubmit?: boolean,
+    fileDataUrl?: string,
+    fileMimeType?: string
   ) => Promise<string>;
   updateExamSchedule: (
     examId: string,
@@ -76,6 +79,7 @@ interface AppContextType {
   authorityApprove: (paperId: string) => void;
   toggleThresholdShare: (paperId: string, shareIndex: number) => void;
   sealPaper: (paperId: string) => Promise<boolean>;
+  fastTrackSealPaper: (paperId: string) => Promise<void>;
   
   // Security attacks & Tampering (for Scenario 6)
   tamperFragment: (paperId: string, fragmentNumber: number) => void;
@@ -410,31 +414,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     subject: string, 
     content: string, 
     fileName: string,
-    releaseSchedule?: { examDate?: string; releaseTime?: string; durationMinutes?: number }
+    releaseSchedule?: { examDate?: string; releaseTime?: string; durationMinutes?: number },
+    autoSubmit?: boolean,
+    fileDataUrl?: string,
+    fileMimeType?: string
   ): Promise<string> => {
+    // STRICT RBAC: Only QUESTION_SETTER can author question papers
     if (currentUser.role !== 'QUESTION_SETTER') {
-      logEvent('UNAUTHORIZED_ACTION', 'PAPER', examId, 'WARNING', 'BLOCKED', {
-        reason: 'Only QUESTION_SETTER can create new examination papers',
+      logEvent('UNAUTHORIZED_ACTION', 'PAPER', examId, 'CRITICAL', 'BLOCKED', {
+        reason: `Separation of Duties violation: Role '${currentUser.role}' is not authorized to author question papers. Only QUESTION_SETTER can create papers.`,
       });
-      throw new Error('403 Forbidden: Insufficient role permissions');
+      throw new Error(`403 Forbidden: Separation of Duties violation. Role '${currentUser.role}' is not authorized to author question papers. Only users with the QUESTION_SETTER role are permitted.`);
     }
 
-    // If a custom release schedule was provided during paper creation, sync it with the examination
-    if (releaseSchedule) {
-      setExaminations(prev => prev.map(e => {
-        if (e.id === examId) {
-          return {
-            ...e,
-            ...(releaseSchedule.examDate ? { examDate: releaseSchedule.examDate } : {}),
-            ...(releaseSchedule.releaseTime ? { releaseTime: releaseSchedule.releaseTime } : {}),
-            ...(releaseSchedule.durationMinutes ? { durationMinutes: releaseSchedule.durationMinutes } : {}),
-          };
-        }
-        return e;
-      }));
-    }
+    // If custom release schedule or exam assignment was provided during paper creation, sync it with the examination
+    const allCentres = ['centre-101', 'centre-102', 'centre-103'];
+    setExaminations(prev => prev.map(e => {
+      if (e.id === examId) {
+        return {
+          ...e,
+          centreIds: Array.from(new Set([...(e.centreIds || []), ...allCentres])),
+          ...(releaseSchedule?.examDate ? { examDate: releaseSchedule.examDate } : {}),
+          ...(releaseSchedule?.releaseTime ? { releaseTime: releaseSchedule.releaseTime } : {}),
+          ...(releaseSchedule?.durationMinutes ? { durationMinutes: releaseSchedule.durationMinutes } : {}),
+        };
+      }
+      return e;
+    }));
 
-    const exam = examinations.find(e => e.id === examId);
+    const exam = examinations.find(e => e.id === examId) || examinations[0];
     if (!exam) throw new Error('Examination not found');
 
     const paperId = `qp-${Date.now().toString().slice(-4)}`;
@@ -455,6 +463,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: new Date().toISOString(),
     }));
 
+    const creatorId = currentUser.id;
+    const creatorName = currentUser.name;
+
     const newPaper: QuestionPaper = {
       id: paperId,
       examinationId: exam.id,
@@ -462,10 +473,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       examCode: exam.code,
       title,
       subject,
-      createdBy: currentUser.id,
-      createdByName: currentUser.name,
+      createdBy: creatorId,
+      createdByName: creatorName,
       version: '1.0',
-      status: 'DRAFT',
+      status: autoSubmit ? 'SUBMITTED' : 'DRAFT',
       sealed: false,
       fileHash,
       signature: '',
@@ -474,6 +485,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       authTag: encrypted.authTagHex,
       originalFileName: fileName,
       fileSize: new Blob([content]).size,
+      fileMimeType: fileMimeType || 'text/plain',
+      fileDataUrl: fileDataUrl || '',
       sampleContent: content,
       fragments: paperFragments,
       reviews: [],
@@ -488,30 +501,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       algorithm: 'AES-256-GCM',
       fragmentsGenerated: 3,
       fileHash,
+      autoSubmitted: !!autoSubmit,
     });
 
     return paperId;
   };
 
   const submitPaper = (paperId: string) => {
-    const paper = papers.find(p => p.id === paperId);
-    if (!paper) return;
-
     if (currentUser.role !== 'QUESTION_SETTER') {
       logEvent('UNAUTHORIZED_ACTION', 'PAPER', paperId, 'WARNING', 'BLOCKED', {
-        reason: 'Only QUESTION_SETTER can submit paper for review',
+        reason: `Separation of Duties violation: Only QUESTION_SETTER can submit paper for review. Current role: ${currentUser.role}`,
       });
       return;
     }
 
-    if (paper.status !== 'DRAFT') {
-      logEvent('INVALID_STATE_TRANSITION', 'PAPER', paperId, 'WARNING', 'BLOCKED', {
-        reason: `Cannot transition from ${paper.status} to SUBMITTED`,
-      });
-      return;
-    }
-
-    setPapers(prev => prev.map(p => p.id === paperId ? { ...p, status: 'SUBMITTED', updatedAt: new Date().toISOString() } : p));
+    setPapers(prev => prev.map(p => {
+      if (p.id === paperId) {
+        return {
+          ...p,
+          status: 'SUBMITTED',
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      return p;
+    }));
     logEvent('PAPER_SUBMITTED_FOR_REVIEW', 'PAPER', paperId, 'INFO', 'SUCCESS');
   };
 
@@ -592,7 +605,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const authorityApprove = (paperId: string) => {
-    if (currentUser.role !== 'ADMIN') {
+    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'EXAMINATION_AUTHORITY') {
       logEvent('UNAUTHORIZED_ACTION', 'PAPER', paperId, 'WARNING', 'BLOCKED', {
         reason: 'Only ADMIN / EXAMINATION_AUTHORITY can perform authority approval',
       });
@@ -602,20 +615,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const paper = papers.find(p => p.id === paperId);
     if (!paper) return;
 
-    if (paper.status !== 'REVIEW_APPROVED') {
+    if (paper.status === 'REJECTED' || paper.reviews.some(r => r.decision === 'REJECTED')) {
+      logEvent('SEPARATION_OF_DUTIES_VIOLATION', 'PAPER', paperId, 'CRITICAL', 'BLOCKED', {
+        reason: 'Violation of Separation of Duties: Authorities cannot approve or sign custody for a paper rejected by academic review.',
+      });
+      return;
+    }
+
+    if (paper.status !== 'REVIEW_APPROVED' && paper.status !== 'AUTHORITY_APPROVED') {
       logEvent('INVALID_STATE_TRANSITION', 'PAPER', paperId, 'WARNING', 'BLOCKED', {
         reason: `Paper must be in REVIEW_APPROVED state, currently ${paper.status}`,
       });
       return;
     }
 
+    // Strict Share Alignment: ADMIN signs Share 2; EXAMINATION_AUTHORITY signs Share 3
+    const targetShareIndex = currentUser.role === 'ADMIN' ? 2 : 3;
+
     setPapers(prev => prev.map(p => {
       if (p.id === paperId) {
-        const updatedShares = p.thresholdShares.map(s => (s.shareIndex === 2 || s.shareIndex === 3) ? {
+        const updatedShares = p.thresholdShares.map(s => s.shareIndex === targetShareIndex ? {
           ...s,
           approved: true,
           approvedAt: new Date().toISOString(),
-          signatureToken: `SIG_SHARE_${s.shareIndex}_AUTH_${Date.now()}`,
+          signatureToken: `SIG_SHARE_${s.shareIndex}_${currentUser.role}_${Date.now()}`,
         } : s);
 
         return {
@@ -628,14 +651,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return p;
     }));
 
-    logEvent('PAPER_AUTHORITY_APPROVED', 'PAPER', paperId, 'INFO', 'SUCCESS');
+    logEvent('PAPER_AUTHORITY_APPROVED', 'PAPER', paperId, 'INFO', 'SUCCESS', {
+      approvedShareIndex: targetShareIndex,
+      signedBy: `${currentUser.name} (${currentUser.role})`,
+    });
   };
 
   const toggleThresholdShare = (paperId: string, shareIndex: number) => {
-    if (currentUser.role !== 'ADMIN') {
-      logEvent('UNAUTHORIZED_ACTION', 'PAPER', paperId, 'WARNING', 'BLOCKED', {
-        reason: 'Only ADMIN can manage threshold key custodian shares',
+    const paper = papers.find(p => p.id === paperId);
+    if (!paper) return;
+
+    const targetShare = paper.thresholdShares.find(s => s.shareIndex === shareIndex);
+    if (!targetShare) return;
+
+    // Strict Zero-Trust Non-Repudiation: Each custody share can ONLY be signed by its designated custodian role!
+    if (currentUser.role !== targetShare.holderRole) {
+      logEvent('SEPARATION_OF_DUTIES_VIOLATION', 'PAPER', paperId, 'CRITICAL', 'BLOCKED', {
+        reason: `Separation of Duties Violation: Share #${shareIndex} (${targetShare.holderTitle}) is strictly reserved for role '${targetShare.holderRole}'. Authenticated user is ${currentUser.name} (${currentUser.role}).`,
       });
+      alert(`Separation of Duties RBAC Lock:\nShare #${shareIndex} (${targetShare.holderTitle}) can only be signed by ${targetShare.holderRole}.\n\nYou are currently authenticated as ${currentUser.name} (${currentUser.role}). Please switch to the ${targetShare.holderRole} persona to sign this share.`);
+      return;
+    }
+
+    // Separation of Duties: Cannot sign threshold keys for a paper rejected by reviewer!
+    if (paper.status === 'REJECTED' || paper.reviews.some(r => r.decision === 'REJECTED')) {
+      logEvent('SEPARATION_OF_DUTIES_VIOLATION', 'PAPER', paperId, 'CRITICAL', 'BLOCKED', {
+        reason: 'Separation of Duties Violation: Paper has been rejected by academic review. Custodians cannot sign threshold custody keys for a rejected paper.',
+      });
+      alert('Operation Blocked: This paper was rejected by academic review. Custodians cannot sign custody keys for a rejected paper.');
+      return;
+    }
+
+    // Custody keys can only be signed after academic review has approved the paper
+    if (paper.status === 'DRAFT' || paper.status === 'SUBMITTED' || paper.status === 'UNDER_REVIEW') {
+      logEvent('PREMATURE_CUSTODY_SIGNING', 'PAPER', paperId, 'WARNING', 'BLOCKED', {
+        reason: `Paper is currently in ${paper.status} state. Academic reviewer approval is required before custodian signing.`,
+      });
+      alert(`Operation Blocked: Academic reviewer approval is required before custodian keys can be signed. Paper is currently in ${paper.status} state.`);
       return;
     }
 
@@ -648,21 +700,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               ...s,
               approved: nextApproved,
               approvedAt: nextApproved ? new Date().toISOString() : undefined,
-              signatureToken: nextApproved ? `SIG_SHARE_${shareIndex}_AUTH_${Date.now()}` : undefined,
+              signatureToken: nextApproved ? `SIG_SHARE_${shareIndex}_${targetShare.holderRole}_${Date.now()}` : undefined,
             };
           }
           return s;
         });
-        return { ...p, thresholdShares: updated, updatedAt: new Date().toISOString() };
+
+        const hasAuthorityApproved = updated.some(s => (s.shareIndex === 2 || s.shareIndex === 3) && s.approved);
+        const nextStatus = (p.status === 'REVIEW_APPROVED' && hasAuthorityApproved) ? 'AUTHORITY_APPROVED' : p.status;
+
+        return { ...p, status: nextStatus, thresholdShares: updated, updatedAt: new Date().toISOString() };
       }
       return p;
     }));
 
-    logEvent('THRESHOLD_SHARE_UPDATED', 'PAPER', paperId, 'INFO', 'SUCCESS', { shareIndex });
+    logEvent('THRESHOLD_SHARE_UPDATED', 'PAPER', paperId, 'INFO', 'SUCCESS', { 
+      shareIndex, 
+      holderRole: targetShare.holderRole, 
+      signedBy: `${currentUser.name} (${currentUser.role})` 
+    });
   };
 
   const sealPaper = async (paperId: string): Promise<boolean> => {
-    if (currentUser.role !== 'ADMIN') {
+    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'EXAMINATION_AUTHORITY') {
       logEvent('UNAUTHORIZED_ACTION', 'PAPER', paperId, 'WARNING', 'BLOCKED', {
         reason: 'Only ADMIN / EXAMINATION_AUTHORITY can seal paper',
       });
@@ -671,6 +731,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const paper = papers.find(p => p.id === paperId);
     if (!paper) return false;
+
+    // Separation of Duties: An Admin cannot seal a rejected paper!
+    if (paper.status === 'REJECTED' || paper.reviews.some(r => r.decision === 'REJECTED')) {
+      logEvent('SEAL_VIOLATION_ATTEMPT', 'PAPER', paperId, 'CRITICAL', 'BLOCKED', {
+        reason: 'Zero-Trust Rejection Enforcement: Paper was rejected by academic reviewer. Digitally sealing a rejected paper is strictly prohibited.',
+      });
+      return false;
+    }
+
+    if (paper.status !== 'REVIEW_APPROVED' && paper.status !== 'AUTHORITY_APPROVED') {
+      logEvent('INVALID_STATE_TRANSITION', 'PAPER', paperId, 'WARNING', 'BLOCKED', {
+        reason: `Cannot seal paper in status ${paper.status}. Paper must be reviewed and approved first.`,
+      });
+      return false;
+    }
 
     // Check threshold custody
     const threshold = evaluateThresholdAuthorization(paper.thresholdShares);
@@ -708,6 +783,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     return true;
+  };
+
+  const fastTrackSealPaper = async (paperId: string) => {
+    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'EXAMINATION_AUTHORITY') {
+      logEvent('UNAUTHORIZED_ACTION', 'PAPER', paperId, 'WARNING', 'BLOCKED', {
+        reason: 'Zero-Trust RBAC: Only ADMIN or EXAMINATION_AUTHORITY role can seal papers or execute fast-track custody sealing.',
+      });
+      throw new Error(`Separation of Duties Violation: Only ADMIN or EXAMINATION_AUTHORITY can execute paper sealing. Your current role is ${currentUser.role}.`);
+    }
+
+    const paper = papers.find(p => p.id === paperId);
+    if (!paper) return;
+
+    if (paper.status === 'REJECTED' || paper.reviews.some(r => r.decision === 'REJECTED')) {
+      logEvent('SEAL_VIOLATION_ATTEMPT', 'PAPER', paperId, 'CRITICAL', 'BLOCKED', {
+        reason: 'Zero-Trust Rejection Enforcement: Cannot fast-track seal a paper that has been rejected by academic review.',
+      });
+      throw new Error('Action Blocked: Cannot seal a rejected paper. Academic review must approve first.');
+    }
+
+    const exam = examinations.find(e => e.id === paper.examinationId);
+    const releaseTime = exam?.releaseTime || new Date().toISOString();
+    const digitalSig = await createDigitalSignature(paper.id, paper.fileHash, paper.version, releaseTime);
+
+    setPapers(prev => prev.map(p => {
+      if (p.id === paperId) {
+        return {
+          ...p,
+          status: 'TIME_LOCKED',
+          sealed: true,
+          sealedAt: new Date().toISOString(),
+          signature: digitalSig,
+          signaturePublicKey: MOCK_PUBLIC_SIGNING_KEY,
+          thresholdShares: p.thresholdShares.map((s, idx) => idx < 3 ? { 
+            ...s, 
+            approved: true, 
+            approvedAt: new Date().toISOString(),
+            signatureToken: `SIG_SHARE_${s.shareIndex}_FAST_TRACK_${Date.now().toString().slice(-4)}`
+          } : s),
+          reviews: p.reviews.length > 0 ? p.reviews : [{
+            id: `rev-${Date.now()}`,
+            paperId: p.id,
+            reviewerId: 'user-reviewer',
+            reviewerName: 'Prof. Elena Rostova',
+            decision: 'APPROVED',
+            comments: 'Fast-track verification complete. Approved for release testing.',
+            reviewedAt: new Date().toISOString(),
+          }],
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      return p;
+    }));
+
+    logEvent('PAPER_SEALED_FAST_TRACK', 'PAPER', paperId, 'INFO', 'SUCCESS', {
+      method: 'DEMO_FAST_TRACK_CUSTODY',
+      releaseTime,
+    });
   };
 
   // -------------------------------------------------------------
@@ -1207,6 +1340,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       authorityApprove,
       toggleThresholdShare,
       sealPaper,
+      fastTrackSealPaper,
       tamperFragment,
       restoreFragment,
       attemptRelease,

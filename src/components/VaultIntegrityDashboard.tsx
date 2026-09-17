@@ -141,7 +141,9 @@ export const VaultIntegrityDashboard: React.FC = () => {
     toggleThresholdShare, 
     tamperFragment, 
     restoreFragment,
-    serverTime 
+    serverTime,
+    currentUser,
+    switchRole
   } = useApp();
 
   const [selectedPaperId, setSelectedPaperId] = useState<string>(papers[0]?.id || 'qp-001');
@@ -673,27 +675,51 @@ export const VaultIntegrityDashboard: React.FC = () => {
                     )}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => selectedPaper && toggleThresholdShare(selectedPaper.id, share.shareIndex)}
-                    className={`mt-3 w-full py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1 ${
-                      share.approved
-                        ? 'bg-white hover:bg-[#fef2f2] text-[#dc2626] border border-[#fecaca]'
-                        : 'bg-[#e95d2a] hover:bg-[#d44c1b] text-white'
-                    }`}
-                  >
-                    {share.approved ? (
-                      <>
-                        <X className="w-3.5 h-3.5" />
-                        <span>Revoke Signature</span>
-                      </>
-                    ) : (
-                      <>
-                        <Check className="w-3.5 h-3.5" />
-                        <span>Sign Custody Share</span>
-                      </>
-                    )}
-                  </button>
+                  {(() => {
+                    const isCustodian = currentUser.role === share.holderRole;
+
+                    if (isCustodian) {
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => selectedPaper && toggleThresholdShare(selectedPaper.id, share.shareIndex)}
+                          className={`mt-3 w-full py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1 ${
+                            share.approved
+                              ? 'bg-white hover:bg-[#fef2f2] text-[#dc2626] border border-[#fecaca]'
+                              : 'bg-[#e95d2a] hover:bg-[#d44c1b] text-white'
+                          }`}
+                        >
+                          {share.approved ? (
+                            <>
+                              <X className="w-3.5 h-3.5" />
+                              <span>Revoke Signature</span>
+                            </>
+                          ) : (
+                            <>
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Sign Share as {share.holderRole}</span>
+                            </>
+                          )}
+                        </button>
+                      );
+                    }
+
+                    return (
+                      <div className="mt-3 flex items-center justify-between gap-1.5 pt-2 border-t border-[#e5e5ea]">
+                        <span className="text-[10px] text-[#6b7280] font-mono truncate">
+                          {share.approved ? 'Signed' : `Req: ${share.holderRole}`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => switchRole(share.holderRole)}
+                          className="px-2 py-1 rounded text-[10px] font-semibold bg-white hover:bg-[#f4f4f6] text-[#222222] border border-[#d1d1d6] transition whitespace-nowrap"
+                          title={`Switch persona to ${share.holderRole}`}
+                        >
+                          Switch Persona
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}

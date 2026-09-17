@@ -12,7 +12,8 @@ import {
   Eye, 
   Layers,
   Lock,
-  MessageSquare
+  MessageSquare,
+  Download
 } from 'lucide-react';
 
 export const ReviewerView: React.FC<{ onNavigateTab?: (tab: string) => void }> = ({ onNavigateTab }) => {
@@ -54,7 +55,8 @@ export const ReviewerView: React.FC<{ onNavigateTab?: (tab: string) => void }> =
     e.preventDefault();
     if (!activePaper) return;
     if (!isReviewer) {
-      switchRole('REVIEWER');
+      alert(`Separation of Duties Violation: You are currently authenticated as ${currentUser.name} (${currentUser.role}). Only users with the REVIEWER role are authorized to submit academic peer reviews. Administrators and Question Setters cannot submit reviews.`);
+      return;
     }
 
     submitReview(activePaper.id, decision, comments);
@@ -69,17 +71,17 @@ export const ReviewerView: React.FC<{ onNavigateTab?: (tab: string) => void }> =
       
       {/* Role Notice */}
       {!isReviewer && (
-        <div className="bg-[#fffbeb] border border-[#fde68a] p-4 rounded-xl flex items-center justify-between text-xs text-[#92400e]">
+        <div className="bg-[#fffbeb] border border-[#fde68a] p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-[#92400e]">
           <div className="flex items-center space-x-2">
             <Info className="w-5 h-5 text-[#d97706] shrink-0" />
             <span>
-              You are currently viewing as <strong>{currentUser.name} ({currentUser.role})</strong>.
-              To perform paper reviews and endorse Share 1, switch to the Reviewer role.
+              <strong>Separation of Duties RBAC Lock:</strong> You are currently viewing as <strong>{currentUser.name} ({currentUser.role})</strong>.
+              Only users with the <strong>REVIEWER</strong> role are authorized to perform paper reviews and sign custodian Share 1.
             </span>
           </div>
           <button
             onClick={() => switchRole('REVIEWER')}
-            className="px-3 py-1.5 rounded-lg bg-[#e95d2a] text-white font-bold hover:bg-[#d44c1b] transition shrink-0"
+            className="px-3 py-1.5 rounded-lg bg-[#e95d2a] text-white font-bold hover:bg-[#d44c1b] transition shrink-0 self-start sm:self-auto"
           >
             Switch to Reviewer (Prof. Elena Rostova)
           </button>
@@ -210,9 +212,21 @@ export const ReviewerView: React.FC<{ onNavigateTab?: (tab: string) => void }> =
 
               {/* Secure Content Preview (Simulated Authorized In-Memory Decryption) */}
               <div>
-                <label className="text-xs font-bold text-[#222222] block mb-1">
-                  Confidential Question Paper Preview (Session Authorized)
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-[#222222]">
+                    Confidential Question Paper Preview (Session Authorized)
+                  </label>
+                  {activePaper.fileDataUrl && (
+                    <a
+                      href={activePaper.fileDataUrl}
+                      download={activePaper.originalFileName || `${activePaper.id}.pdf`}
+                      className="text-[11px] font-bold text-[#e95d2a] hover:underline flex items-center space-x-1"
+                    >
+                      <Download className="w-3 h-3" />
+                      <span>Download Original ({activePaper.originalFileName})</span>
+                    </a>
+                  )}
+                </div>
                 <div className="bg-[#f4f4f6] p-3 rounded-lg border border-[#e5e5ea] font-mono text-[11px] text-[#222222] max-h-56 overflow-y-auto whitespace-pre-wrap leading-relaxed">
                   {activePaper.sampleContent}
                 </div>
@@ -312,11 +326,16 @@ export const ReviewerView: React.FC<{ onNavigateTab?: (tab: string) => void }> =
 
                   <button
                     type="submit"
-                    disabled={activePaper.sealed}
-                    className="px-5 py-2.5 rounded-lg bg-[#e95d2a] hover:bg-[#d44c1b] text-white font-bold text-xs transition shadow-sm flex items-center space-x-2 disabled:opacity-50"
+                    disabled={activePaper.sealed || !isReviewer}
+                    className="px-5 py-2.5 rounded-lg bg-[#e95d2a] hover:bg-[#d44c1b] text-white font-bold text-xs transition shadow-sm flex items-center space-x-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                    title={!isReviewer ? `Blocked: Only REVIEWER role can submit reviews. Current role: ${currentUser.role}` : activePaper.sealed ? 'Blocked: Paper is sealed' : ''}
                   >
                     <FileCheck2 className="w-4 h-4" />
-                    <span>Submit Official Review Decision</span>
+                    <span>
+                      {!isReviewer 
+                        ? `Review Blocked (${currentUser.role} Role - Must be REVIEWER)` 
+                        : 'Submit Official Review Decision'}
+                    </span>
                   </button>
                 </div>
 

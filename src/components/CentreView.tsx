@@ -20,7 +20,10 @@ import {
   X,
   Eye,
   RefreshCw,
-  UserCheck
+  UserCheck,
+  Sparkles,
+  Search,
+  Filter
 } from 'lucide-react';
 import { ReleaseRecord, QuestionPaper, Examination } from '../types';
 
@@ -33,12 +36,17 @@ export const CentreView: React.FC<{ onNavigateTab?: (tab: string) => void }> = (
     papers, 
     releaseRecords,
     serverTime, 
-    attemptRelease 
+    attemptRelease,
+    fastTrackSealPaper
   } = useApp();
 
   const [selectedCentreId, setSelectedCentreId] = useState(currentUser.centreId || 'centre-101');
   const [selectedPaperByExam, setSelectedPaperByExam] = useState<Record<string, string>>({});
   const [releaseInProgress, setReleaseInProgress] = useState(false);
+  const [fastTrackLoading, setFastTrackLoading] = useState<string | null>(null);
+  const [fastTrackSuccess, setFastTrackSuccess] = useState<string | null>(null);
+  const [examFilter, setExamFilter] = useState<string>('ALL');
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [copiedToken, setCopiedToken] = useState(false);
   const [copiedPaper, setCopiedPaper] = useState(false);
@@ -55,8 +63,55 @@ export const CentreView: React.FC<{ onNavigateTab?: (tab: string) => void }> = (
   const isCentreRole = currentUser.role === 'EXAMINATION_CENTRE';
   const currentCentre = centres.find(c => c.id === selectedCentreId) || centres[0];
 
-  // Examinations assigned to this centre
-  const assignedExams = examinations.filter(e => e.centreIds.includes(currentCentre.id));
+  // Examinations assigned to this centre (or fallback to all examinations)
+  const assignedExams = examinations.filter(e => e.centreIds.length === 0 || e.centreIds.includes(currentCentre.id));
+
+  // All question papers matching this centre's examination schedule (excluding rejected papers)
+  const assignedPapers = papers.filter(p => {
+    // Under Zero-Trust policy, rejected papers must never be available or visible at Examination Centres
+    if (p.status === 'REJECTED' || p.reviews.some(r => r.decision === 'REJECTED')) {
+      return false;
+    }
+
+    const exam = examinations.find(e => e.id === p.examinationId);
+    const matchesCentre = !exam || exam.centreIds.length === 0 || exam.centreIds.includes(currentCentre.id);
+    const matchesExamFilter = examFilter === 'ALL' || p.examinationId === examFilter;
+    const q = searchQuery.trim().toLowerCase();
+    const matchesSearch = !q || 
+      p.title.toLowerCase().includes(q) ||
+      p.subject.toLowerCase().includes(q) ||
+      p.id.toLowerCase().includes(q) ||
+      (p.createdByName && p.createdByName.toLowerCase().includes(q)) ||
+      (exam && exam.code.toLowerCase().includes(q)) ||
+      (exam && exam.name.toLowerCase().includes(q));
+    return matchesCentre && matchesExamFilter && matchesSearch;
+  });
+
+  // Examinations that currently have zero approved/active papers uploaded
+  const examsWithoutPapers = assignedExams.filter(exam => {
+    const matchesExamFilter = examFilter === 'ALL' || exam.id === examFilter;
+    const hasPapers = papers.some(p => p.examinationId === exam.id && p.status !== 'REJECTED' && !p.reviews.some(r => r.decision === 'REJECTED'));
+    const q = searchQuery.trim().toLowerCase();
+    const matchesSearch = !q || exam.name.toLowerCase().includes(q) || exam.code.toLowerCase().includes(q);
+    return matchesExamFilter && !hasPapers && matchesSearch;
+  });
+
+  const handleFastTrackSeal = async (paperId: string) => {
+    if (currentUser.role !== 'ADMIN') {
+      alert(`Separation of Duties RBAC Lock: Sealing and threshold custody operations are strictly restricted to the ADMIN role. You are currently authenticated as ${currentUser.name} (${currentUser.role}). Please switch to the Administrator role to sign and seal papers.`);
+      return;
+    }
+    setFastTrackLoading(paperId);
+    try {
+      await fastTrackSealPaper(paperId);
+      setFastTrackSuccess(`Question Paper [${paperId}] successfully sealed with 3-of-5 custody threshold and signed!`);
+      setTimeout(() => setFastTrackSuccess(null), 4000);
+    } catch (err: any) {
+      alert(`Seal Operation Blocked: ${err.message}`);
+    } finally {
+      setFastTrackLoading(null);
+    }
+  };
 
   // Trigger file download of decrypted examination paper - STRICTLY RESTRICTED TO CENTRE USERS
   const handleDownloadPaper = (exam: Examination, paper: QuestionPaper, content: string) => {
@@ -64,6 +119,18 @@ export const CentreView: React.FC<{ onNavigateTab?: (tab: string) => void }> = (
       alert(`Zero-Trust Security Violation: Access Denied. Live question paper file download is restricted EXCLUSIVELY to authenticated Examination Centre Superintendents (EXAMINATION_CENTRE). You are currently signed in as "${currentUser.name}" (${currentUser.role}).`);
       return;
     }
+
+    // If the paper was authored with an original binary file (PDF/DOCX), download in original format
+    if (paper.fileDataUrl) {
+      const link = document.createElement('a');
+      link.href = paper.fileDataUrl;
+      link.download = paper.originalFileName || `${exam.code}_${paper.id}_Decrypted_Paper.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
     const filename = `${exam.code}_${paper.id}_Decrypted_Examination_Paper.txt`;
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -254,23 +321,98 @@ export const CentreView: React.FC<{ onNavigateTab?: (tab: string) => void }> = (
 
       {/* Assigned Examinations & Release Request Cards */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-extrabold text-[#222222] uppercase tracking-wide flex items-center space-x-2">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center space-x-2">
             <Clock className="w-4 h-4 text-[#e95d2a]" />
-            <span>Assigned Examination Papers Schedule</span>
-          </h2>
+            <h2 className="text-sm font-extrabold text-[#222222] uppercase tracking-wide">
+              Assigned Examination Papers Schedule
+            </h2>
+            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#fef3ee] text-[#e95d2a] border border-[#fde2d4]">
+              {assignedPapers.length} Paper{assignedPapers.length !== 1 ? 's' : ''} Available
+            </span>
+          </div>
           <span className="text-xs text-[#6b7280]">
             Current Server Time: <strong className="font-mono text-[#222222]">{serverTime.toLocaleTimeString()}</strong>
           </span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {assignedExams.map(exam => {
-            const examPapers = papers.filter(p => p.examinationId === exam.id);
-            const currentSelectedPaperId = selectedPaperByExam[exam.id] || examPapers[0]?.id;
-            const paper = examPapers.find(p => p.id === currentSelectedPaperId) || examPapers[0];
+        {fastTrackSuccess && (
+          <div className="bg-[#ecfdf5] border border-[#a7f3d0] p-3 rounded-lg text-xs font-bold text-[#065f46] flex items-center space-x-2 animate-in fade-in">
+            <CheckCircle2 className="w-4 h-4 text-[#059669] shrink-0" />
+            <span>{fastTrackSuccess}</span>
+          </div>
+        )}
 
-            const releaseTimeMs = new Date(exam.releaseTime).getTime();
+        {/* Filter & Search Toolbar */}
+        <div className="bg-[#f4f4f6] p-2.5 rounded-xl border border-[#e5e5ea] flex flex-col md:flex-row md:items-center justify-between gap-3">
+          {/* Exam Filter Pills */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 text-xs">
+            <span className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider mr-1 shrink-0 flex items-center space-x-1">
+              <Filter className="w-3 h-3 text-[#e95d2a]" />
+              <span>Exam:</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setExamFilter('ALL')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition shrink-0 ${
+                examFilter === 'ALL'
+                  ? 'bg-[#222222] text-white shadow-xs'
+                  : 'bg-white text-[#6b7280] border border-[#e5e5ea] hover:bg-[#e5e5ea]'
+              }`}
+            >
+              All Examinations ({papers.length})
+            </button>
+            {examinations.map(exam => {
+              const examCount = papers.filter(p => p.examinationId === exam.id).length;
+              return (
+                <button
+                  key={exam.id}
+                  type="button"
+                  onClick={() => setExamFilter(exam.id)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition shrink-0 flex items-center space-x-1.5 ${
+                    examFilter === exam.id
+                      ? 'bg-[#e95d2a] text-white shadow-xs'
+                      : 'bg-white text-[#6b7280] border border-[#e5e5ea] hover:bg-[#e5e5ea]'
+                  }`}
+                >
+                  <span className="font-mono">{exam.code}</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    examFilter === exam.id ? 'bg-white/20 text-white' : 'bg-[#f4f4f6] text-[#222222]'
+                  }`}>
+                    {examCount}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Instant Search Bar */}
+          <div className="relative w-full md:w-64 shrink-0">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-[#6b7280]" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search paper, code, setter..."
+              className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-[#e5e5ea] rounded-lg text-[#222222] placeholder:text-[#9ca3af] focus:outline-none focus:ring-1 focus:ring-[#e95d2a]"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-2 text-[#9ca3af] hover:text-[#222222]"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Paper Grid - Each Question Paper is rendered as its own distinct card */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {assignedPapers.map(paper => {
+            const exam = examinations.find(e => e.id === paper.examinationId);
+            const releaseTimeMs = exam ? new Date(exam.releaseTime).getTime() : 0;
             const currentMs = serverTime.getTime();
             const isUnlocked = currentMs >= releaseTimeMs;
             const secondsLeft = Math.max(0, Math.ceil((releaseTimeMs - currentMs) / 1000));
@@ -279,36 +421,42 @@ export const CentreView: React.FC<{ onNavigateTab?: (tab: string) => void }> = (
             const mins = Math.floor((secondsLeft % 3600) / 60);
             const secs = secondsLeft % 60;
 
-            const isAlreadyReleased = paper?.status === 'RELEASED';
-            const isReadyForRelease = paper?.sealed && isUnlocked;
+            const isAlreadyReleased = paper.status === 'RELEASED';
+            const isReadyForRelease = paper.sealed && isUnlocked;
+            const approvedShares = paper.thresholdShares.filter(s => s.approved).length;
+            const isQuorumMet = approvedShares >= 3;
 
             return (
               <div 
-                key={exam.id}
+                key={paper.id}
                 className={`bg-white rounded-xl border p-5 shadow-xs flex flex-col justify-between transition ${
                   isAlreadyReleased 
                     ? 'border-[#059669] ring-1 ring-[#059669]/20' 
-                    : isUnlocked 
-                      ? 'border-[#a7f3d0]' 
-                      : 'border-[#e5e5ea]'
+                    : paper.sealed
+                      ? isUnlocked 
+                        ? 'border-[#a7f3d0] ring-1 ring-[#10b981]/20' 
+                        : 'border-[#fed7aa]'
+                      : 'border-[#fde68a] bg-linear-to-b from-[#fffefc] to-white'
                 }`}
               >
                 <div>
+                  {/* Card Header Badges */}
                   <div className="flex items-start justify-between mb-2">
-                    <div>
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <span className="text-[10px] font-mono font-extrabold px-1.5 py-0.5 rounded bg-[#f4f4f6] text-[#222222] border border-[#e5e5ea]">
-                        {exam.code}
+                        {exam?.code || 'EXAM'}
                       </span>
-                      <h3 className="font-extrabold text-sm text-[#222222] mt-1.5 leading-snug">
-                        {exam.name}
-                      </h3>
+                      <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-[#222222] text-white">
+                        {paper.id} (v{paper.version})
+                      </span>
                     </div>
+
                     {isAlreadyReleased ? (
                       <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#ecfdf5] text-[#059669] border border-[#a7f3d0] flex items-center space-x-1 shrink-0">
                         <CheckCircle2 className="w-3 h-3 text-[#059669]" />
                         <span>RELEASED</span>
                       </span>
-                    ) : (
+                    ) : paper.sealed ? (
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center space-x-1 shrink-0 ${
                         isUnlocked
                           ? 'bg-[#ecfdf5] text-[#065f46] border border-[#a7f3d0]'
@@ -317,132 +465,146 @@ export const CentreView: React.FC<{ onNavigateTab?: (tab: string) => void }> = (
                         {isUnlocked ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
                         <span>{isUnlocked ? 'WINDOW OPEN' : 'TIME-LOCKED'}</span>
                       </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#fffbeb] text-[#d97706] border border-[#fde68a] flex items-center space-x-1 shrink-0">
+                        <AlertTriangle className="w-3 h-3 text-[#d97706]" />
+                        <span>{paper.status}</span>
+                      </span>
                     )}
                   </div>
 
-                  {/* Paper Set Selector if multiple papers exist */}
-                  {examPapers.length > 1 && (
-                    <div className="my-2 p-2 bg-[#f4f4f6] rounded-lg border border-[#e5e5ea]">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] font-bold uppercase tracking-wide text-[#6b7280]">
-                          Select Question Paper Set ({examPapers.length} available):
-                        </span>
-                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-white text-[#e95d2a] font-bold border border-[#e5e5ea]">
-                          New Paper Detected
-                        </span>
-                      </div>
-                      <select
-                        value={paper?.id || ''}
-                        onChange={e => setSelectedPaperByExam(prev => ({ ...prev, [exam.id]: e.target.value }))}
-                        className="w-full text-xs font-semibold px-2 py-1.5 rounded border border-[#e5e5ea] bg-white text-[#222222] focus:ring-1 focus:ring-[#e95d2a]"
-                      >
-                        {examPapers.map(p => (
-                          <option key={p.id} value={p.id}>
-                            {p.id} - {p.title} [{p.status}]
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
-                  <div className="bg-[#f4f4f6] p-3 rounded-lg border border-[#e5e5ea] my-3 text-xs space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-[#6b7280]">Official Release Time:</span>
-                      <span className="font-mono font-bold text-[#222222]">
-                        {new Date(exam.releaseTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  {/* Question Paper Title & Examination Info */}
+                  <div className="mt-2">
+                    <h3 className="font-extrabold text-base text-[#222222] leading-snug">
+                      {paper.title}
+                    </h3>
+                    <p className="text-xs text-[#6b7280] mt-0.5 font-medium">
+                      {exam?.name || 'Competitive Examination'}
+                    </p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-[#6b7280]">
+                      <span className="inline-flex items-center space-x-1">
+                        <UserCheck className="w-3 h-3 text-[#e95d2a]" />
+                        <span>Setter: <strong className="text-[#222222]">{paper.createdByName}</strong></span>
                       </span>
-                    </div>
-                    <div className="flex justify-between font-bold">
-                      <span className="text-[#6b7280]">Time-Lock Status:</span>
-                      {isUnlocked ? (
-                        <span className="text-[#059669]">Elapsed (Authorized)</span>
-                      ) : (
-                        <span className="text-[#e95d2a] font-mono">
-                          {hours}h {mins}m {secs}s remaining
-                        </span>
-                      )}
+                      <span className="text-[#d1d5db]">•</span>
+                      <span className="font-mono text-[10px] text-[#6b7280] bg-[#f4f4f6] px-1 py-0.2 rounded border border-[#e5e5ea]">
+                        {paper.originalFileName}
+                      </span>
                     </div>
                   </div>
 
-                  {paper && (
-                    <div className="text-[11px] text-[#6b7280] mb-3 space-y-1">
+                  {/* Official Release Timing Box */}
+                  {exam && (
+                    <div className="bg-[#f4f4f6] p-3 rounded-lg border border-[#e5e5ea] my-3 text-xs space-y-1">
                       <div className="flex justify-between">
-                        <span>Paper ID & Version:</span>
+                        <span className="text-[#6b7280]">Official Release Time:</span>
                         <span className="font-mono font-bold text-[#222222]">
-                          {paper.id} (v{paper.version})
+                          {new Date(exam.releaseTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          <span className="text-[10px] font-normal text-[#6b7280] ml-1">({exam.examDate})</span>
                         </span>
                       </div>
-                      <div className="flex justify-between">
-                        <span>Paper Title:</span>
-                        <span className="font-medium text-[#222222] truncate max-w-[180px] text-right" title={paper.title}>
-                          {paper.title}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Custody Quorum:</span>
-                        <span className="font-mono font-bold text-[#222222]">
-                          {paper.thresholdShares.filter(s => s.approved).length} / {paper.thresholdShares.length}
-                          <span className="ml-1 text-[10px] font-normal text-[#6b7280]">
-                            {paper.thresholdShares.filter(s => s.approved).length >= 3 ? '(Quorum ✓)' : '(Need 3)'}
+                      <div className="flex justify-between font-bold">
+                        <span className="text-[#6b7280]">Time-Lock Status:</span>
+                        {isUnlocked ? (
+                          <span className="text-[#059669]">Release Window Elapsed (Authorized)</span>
+                        ) : (
+                          <span className="text-[#e95d2a] font-mono">
+                            {hours}h {mins}m {secs}s remaining
                           </span>
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Digital Master Seal:</span>
-                        <span className={`font-semibold ${paper.sealed ? 'text-[#059669]' : 'text-[#d97706]'}`}>
-                          {paper.sealed ? '✓ Validated & Sealed' : `Pending Authority (${paper.status})`}
-                        </span>
+                        )}
                       </div>
                     </div>
                   )}
 
-                  {/* Zero-Trust Custody Stage Warning if not sealed */}
-                  {paper && !paper.sealed && (
-                    <div className="mb-3 bg-[#fffbeb] border border-[#fde68a] p-2.5 rounded-lg text-[11px] text-[#92400e] space-y-1">
-                      <div className="font-bold flex items-center space-x-1">
-                        <AlertTriangle className="w-3.5 h-3.5 text-[#d97706] shrink-0" />
-                        <span>Zero-Trust Stage: {paper.status}</span>
+                  {/* Cryptographic Custody Indicators */}
+                  <div className="text-[11px] text-[#6b7280] mb-3 space-y-1 bg-white p-2.5 rounded-lg border border-[#e5e5ea]">
+                    <div className="flex justify-between">
+                      <span>Custody Threshold Quorum:</span>
+                      <span className="font-mono font-bold text-[#222222]">
+                        {approvedShares} / {paper.thresholdShares.length}
+                        <span className={`ml-1 text-[10px] font-bold ${isQuorumMet ? 'text-[#059669]' : 'text-[#d97706]'}`}>
+                          {isQuorumMet ? '(Quorum ✓)' : '(Need 3 of 5)'}
+                        </span>
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Digital Master Seal:</span>
+                      <span className={`font-semibold ${paper.sealed ? 'text-[#059669]' : 'text-[#d97706]'}`}>
+                        {paper.sealed ? '✓ Signed & Sealed (Time-Locked)' : `Pending Custody (${paper.status})`}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Split-Seal Storage:</span>
+                      <span className="font-mono text-[#222222]">
+                        3 Distributed Shards (AES-256-GCM)
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Zero-Trust Custody Notice & Fast-Track Sealing for Testing */}
+                  {!paper.sealed && (
+                    <div className="mb-3 bg-[#fffbeb] border border-[#fde68a] p-3 rounded-lg text-[11px] text-[#92400e] space-y-2">
+                      <div className="font-bold flex items-center justify-between">
+                        <span className="flex items-center space-x-1">
+                          <AlertTriangle className="w-3.5 h-3.5 text-[#d97706] shrink-0" />
+                          <span>Zero-Trust Custody Stage: {paper.status}</span>
+                        </span>
+                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-white border border-[#fde68a] text-[#b45309]">
+                          Unsealed
+                        </span>
                       </div>
                       <p className="text-[10px] leading-relaxed text-[#b45309]">
-                        {paper.status === 'DRAFT' && 'Setter has drafted this paper. Needs Reviewer approval & Admin 3-of-5 custody threshold seal.'}
-                        {paper.status === 'SUBMITTED' && 'Submitted for Academic Review. Needs Reviewer endorsement & Admin custody seal.'}
-                        {paper.status === 'UNDER_REVIEW' && 'Currently undergoing academic syllabus audit by peer reviewer.'}
-                        {paper.status === 'REVIEW_APPROVED' && 'Academic review approved! Ready for Admin 3-of-5 custody signatures and Master Seal.'}
-                        {paper.status === 'AUTHORITY_APPROVED' && 'Threshold satisfied! Awaiting Admin Master Seal to lock into time-vault.'}
+                        {paper.status === 'DRAFT' && 'Drafted by Question Setter. Needs Reviewer approval and 3-of-5 admin custody seal before centre release.'}
+                        {paper.status === 'SUBMITTED' && 'Submitted for academic review. Awaiting Reviewer verification & Admin 3-of-5 threshold seal.'}
+                        {paper.status === 'UNDER_REVIEW' && 'Under review by peer reviewer. Awaiting endorsement and admin custody signatures.'}
+                        {paper.status === 'REVIEW_APPROVED' && 'Academic review approved! Ready for Admin 3-of-5 threshold custody signatures and Master Seal.'}
                       </p>
-                      {onNavigateTab && (
-                        <div className="flex items-center gap-1.5 pt-1">
-                          {(paper.status === 'DRAFT' || paper.status === 'SUBMITTED' || paper.status === 'UNDER_REVIEW') && (
+
+                      <div className="pt-1 flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          disabled={fastTrackLoading === paper.id}
+                          onClick={() => handleFastTrackSeal(paper.id)}
+                          className="px-2.5 py-1 rounded bg-[#e95d2a] hover:bg-[#d44c1b] text-white font-bold text-[11px] transition shadow-xs flex items-center space-x-1 disabled:opacity-50"
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          <span>{fastTrackLoading === paper.id ? 'Sealing...' : '⚡ Fast-Track Custody Seal (Demo)'}</span>
+                        </button>
+
+                        {onNavigateTab && (
+                          <>
+                            {(paper.status === 'DRAFT' || paper.status === 'SUBMITTED' || paper.status === 'UNDER_REVIEW') && (
+                              <button
+                                type="button"
+                                onClick={() => onNavigateTab('reviewer')}
+                                className="px-2 py-1 rounded bg-white text-[#92400e] border border-[#fde68a] font-bold text-[10px] hover:bg-[#fef3c7] transition"
+                              >
+                                Reviewer Tab
+                              </button>
+                            )}
                             <button
                               type="button"
-                              onClick={() => onNavigateTab('reviewer')}
-                              className="px-2 py-0.5 rounded bg-[#d97706] text-white font-bold text-[10px] hover:bg-[#b45309] transition"
+                              onClick={() => onNavigateTab('admin')}
+                              className="px-2 py-1 rounded bg-white text-[#92400e] border border-[#fde68a] font-bold text-[10px] hover:bg-[#fef3c7] transition"
                             >
-                              Go to Reviewer
+                              Admin Custody Tab
                             </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => onNavigateTab('admin')}
-                            className="px-2 py-0.5 rounded bg-white text-[#92400e] border border-[#fde68a] font-bold text-[10px] hover:bg-[#fef3c7] transition"
-                          >
-                            Sign Custody in Admin
-                          </button>
-                        </div>
-                      )}
+                          </>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
 
+                {/* Primary Action Button - Strictly Gated to Centre Role */}
                 <div className="space-y-2 pt-2 border-t border-[#f0f0f2]">
-                  {/* Primary Action Button - Strictly Gated to Centre Role */}
                   {isAlreadyReleased ? (
                     <div className="space-y-2">
                       {isCentreRole ? (
                         <>
                           <button
                             type="button"
-                            onClick={() => paper && handleViewAlreadyReleased(paper, exam)}
+                            onClick={() => exam && handleViewAlreadyReleased(paper, exam)}
                             className="w-full py-2.5 rounded-lg text-xs font-bold bg-[#059669] hover:bg-[#047857] text-white transition flex items-center justify-center space-x-2 shadow-sm"
                           >
                             <Eye className="w-4 h-4" />
@@ -451,16 +613,16 @@ export const CentreView: React.FC<{ onNavigateTab?: (tab: string) => void }> = (
                           <div className="flex items-center space-x-2">
                             <button
                               type="button"
-                              onClick={() => paper && handleDownloadPaper(exam, paper, paper.sampleContent)}
+                              onClick={() => exam && handleDownloadPaper(exam, paper, paper.sampleContent)}
                               className="flex-1 py-1.5 rounded-lg text-[11px] font-bold bg-[#f4f4f6] hover:bg-[#e5e5ea] text-[#222222] border border-[#e5e5ea] transition flex items-center justify-center space-x-1"
                             >
                               <Download className="w-3.5 h-3.5 text-[#059669]" />
-                              <span>Download (.txt)</span>
+                              <span>Download {paper.fileDataUrl ? `(${paper.originalFileName?.split('.').pop()?.toUpperCase() || 'FILE'})` : '(.txt)'}</span>
                             </button>
                             <button
                               type="button"
                               disabled={releaseInProgress}
-                              onClick={() => paper && handleRequestRelease(paper.id)}
+                              onClick={() => handleRequestRelease(paper.id)}
                               className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-[#6b7280] hover:text-[#222222] hover:bg-[#f4f4f6] transition flex items-center space-x-1"
                               title="Re-run 13 verification gates"
                             >
@@ -489,7 +651,7 @@ export const CentreView: React.FC<{ onNavigateTab?: (tab: string) => void }> = (
                             </button>
                             <button
                               type="button"
-                              onClick={() => paper && handleRequestRelease(paper.id)}
+                              onClick={() => handleRequestRelease(paper.id)}
                               className="px-2 py-1.5 rounded bg-white text-[#991b1b] border border-[#fecaca] font-bold text-[10px] hover:bg-[#fee2e2] transition"
                               title="Test security gate RBAC denial"
                             >
@@ -503,23 +665,29 @@ export const CentreView: React.FC<{ onNavigateTab?: (tab: string) => void }> = (
                     <div className="space-y-2">
                       <button
                         type="button"
-                        disabled={releaseInProgress || !paper}
-                        onClick={() => paper && handleRequestRelease(paper.id)}
+                        disabled={releaseInProgress}
+                        onClick={() => handleRequestRelease(paper.id)}
                         className={`w-full py-2.5 rounded-lg text-xs font-bold transition flex items-center justify-center space-x-2 shadow-sm ${
-                          isUnlocked && isCentreRole
+                          isUnlocked && isCentreRole && paper.sealed
                             ? 'bg-[#e95d2a] hover:bg-[#d44c1b] text-white'
                             : 'bg-[#222222] hover:bg-black text-white'
                         }`}
                       >
-                        {isUnlocked && isCentreRole ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4 text-[#e95d2a]" />}
+                        {isUnlocked && isCentreRole && paper.sealed ? (
+                          <Unlock className="w-4 h-4" />
+                        ) : (
+                          <Lock className="w-4 h-4 text-[#e95d2a]" />
+                        )}
                         <span>
                           {releaseInProgress 
                             ? 'Evaluating 13 Security Gates...' 
                             : !isCentreRole
                               ? `Test Gate Release (Will Block ${currentUser.role})`
-                              : isUnlocked 
-                                ? 'Request Decrypted Examination Paper' 
-                                : 'Request Early Release (Test Time-Lock Block)'}
+                              : !paper.sealed
+                                ? `Release Blocked (${paper.status} - Needs Seal)`
+                                : isUnlocked 
+                                  ? 'Request Decrypted Examination Paper' 
+                                  : 'Request Early Release (Test Time-Lock Block)'}
                         </span>
                       </button>
                     </div>
@@ -528,6 +696,63 @@ export const CentreView: React.FC<{ onNavigateTab?: (tab: string) => void }> = (
               </div>
             );
           })}
+
+          {/* Fallback Cards for Examinations with No Papers Uploaded Yet */}
+          {examsWithoutPapers.map(exam => (
+            <div
+              key={exam.id}
+              className="bg-white rounded-xl border border-dashed border-[#d1d5db] p-5 shadow-xs flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-mono font-extrabold px-1.5 py-0.5 rounded bg-[#f4f4f6] text-[#222222] border border-[#e5e5ea]">
+                    {exam.code}
+                  </span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#f4f4f6] text-[#6b7280] border border-[#e5e5ea]">
+                    NO PAPER UPLOADED
+                  </span>
+                </div>
+                <h3 className="font-extrabold text-base text-[#222222] leading-snug mt-2">
+                  {exam.name}
+                </h3>
+                <p className="text-xs text-[#6b7280] mt-1">
+                  Scheduled for {new Date(exam.releaseTime).toLocaleString()}
+                </p>
+                <div className="my-4 p-3 bg-[#f9fafb] rounded-lg border border-[#e5e5ea] text-xs text-[#6b7280]">
+                  No confidential question papers have been authored for this examination schedule yet.
+                </div>
+              </div>
+
+              {onNavigateTab && (
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab('setter')}
+                  className="w-full py-2 rounded-lg text-xs font-bold bg-[#f4f4f6] hover:bg-[#e5e5ea] text-[#222222] border border-[#e5e5ea] transition flex items-center justify-center space-x-1"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-[#e95d2a]" />
+                  <span>Open Question Setter to Author Paper</span>
+                </button>
+              )}
+            </div>
+          ))}
+
+          {/* Zero Search/Filter Results State */}
+          {assignedPapers.length === 0 && examsWithoutPapers.length === 0 && (
+            <div className="col-span-full py-12 text-center bg-white rounded-xl border border-[#e5e5ea]">
+              <FileText className="w-8 h-8 text-[#9ca3af] mx-auto mb-2" />
+              <h4 className="font-bold text-sm text-[#222222]">No question papers match the filter</h4>
+              <p className="text-xs text-[#6b7280] mt-1">
+                Try clearing the search query or selecting &quot;All Examinations&quot;.
+              </p>
+              <button
+                type="button"
+                onClick={() => { setExamFilter('ALL'); setSearchQuery(''); }}
+                className="mt-3 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#e95d2a] text-white hover:bg-[#d44c1b] transition"
+              >
+                Reset Filters
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -670,7 +895,7 @@ export const CentreView: React.FC<{ onNavigateTab?: (tab: string) => void }> = (
                             className="px-2.5 py-1.5 rounded-lg bg-[#e95d2a] hover:bg-[#d44c1b] text-white text-[11px] font-bold flex items-center space-x-1 shadow-xs"
                           >
                             <Download className="w-3.5 h-3.5" />
-                            <span>Download Paper (.txt)</span>
+                            <span>Download {latestReleaseResult.paper.fileDataUrl ? `(${latestReleaseResult.paper.originalFileName?.split('.').pop()?.toUpperCase() || 'DOCUMENT'})` : 'Paper (.txt)'}</span>
                           </button>
                         )}
                         <button
@@ -812,7 +1037,7 @@ export const CentreView: React.FC<{ onNavigateTab?: (tab: string) => void }> = (
                               className="px-3 py-1.5 rounded-lg bg-[#e95d2a] hover:bg-[#d44c1b] text-white text-xs font-bold flex items-center space-x-1 shadow-xs"
                             >
                               <Download className="w-3.5 h-3.5" />
-                              <span>Download File (.txt)</span>
+                              <span>Download {latestReleaseResult.paper.fileDataUrl ? `(${latestReleaseResult.paper.originalFileName?.split('.').pop()?.toUpperCase() || 'DOCUMENT'})` : 'File (.txt)'}</span>
                             </button>
                           )}
                           <button

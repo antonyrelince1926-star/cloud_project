@@ -12,7 +12,8 @@ import {
   Eye, 
   Clock, 
   Terminal,
-  FileSpreadsheet
+  FileSpreadsheet,
+  X
 } from 'lucide-react';
 
 export const AuditLogView: React.FC = () => {
@@ -213,22 +214,30 @@ export const AuditLogView: React.FC = () => {
 
       {/* Log Inspector Modal */}
       {selectedLog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-xl shadow-2xl border border-[#e5e5ea] w-full max-w-xl overflow-hidden animate-in fade-in zoom-in duration-150">
-            <div className="bg-[#222222] text-white px-6 py-4 flex items-center justify-between">
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-4 overflow-y-auto"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelectedLog(null);
+          }}
+        >
+          <div className="bg-white rounded-xl shadow-2xl border border-[#e5e5ea] w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-150 my-auto">
+            <div className="bg-[#222222] text-white px-5 sm:px-6 py-3.5 sm:py-4 flex items-center justify-between shrink-0 border-b border-[#333333]">
               <div className="flex items-center space-x-2">
                 <Terminal className="w-5 h-5 text-[#e95d2a]" />
                 <h3 className="font-bold text-sm">Security Event Forensics</h3>
               </div>
               <button 
+                type="button"
                 onClick={() => setSelectedLog(null)}
-                className="text-[#9ca3af] hover:text-white"
+                className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-[#e5e5ea] hover:text-white flex items-center justify-center transition shrink-0 ml-2"
+                aria-label="Close dialog"
+                title="Close"
               >
-                ✕
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 space-y-4 text-xs">
+            <div className="p-5 sm:p-6 space-y-4 text-xs overflow-y-auto flex-1">
               <div className="grid grid-cols-2 gap-3 bg-[#f4f4f6] p-3 rounded-lg border border-[#e5e5ea]">
                 <div>
                   <span className="text-[#6b7280] font-bold block">EVENT ID:</span>
@@ -254,15 +263,16 @@ export const AuditLogView: React.FC = () => {
                   {JSON.stringify(selectedLog.metadata || {}, null, 2)}
                 </pre>
               </div>
+            </div>
 
-              <div className="flex justify-end pt-2">
-                <button
-                  onClick={() => setSelectedLog(null)}
-                  className="px-4 py-2 rounded-lg bg-[#222222] hover:bg-black text-white text-xs font-bold"
-                >
-                  Close Forensics Inspector
-                </button>
-              </div>
+            <div className="px-5 sm:px-6 py-3.5 bg-[#fbfbfb] border-t border-[#e5e5ea] flex justify-end shrink-0">
+              <button
+                type="button"
+                onClick={() => setSelectedLog(null)}
+                className="px-4 py-2 rounded-lg bg-[#222222] hover:bg-black text-white text-xs font-bold transition"
+              >
+                Close Forensics Inspector
+              </button>
             </div>
           </div>
         </div>
