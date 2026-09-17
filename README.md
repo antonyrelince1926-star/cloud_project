@@ -1,27 +1,37 @@
-# 🔐 Zero-Trust Split-Seal
+# Zero-Trust Split-Seal
 
 ## Secure Cloud-Based Competitive Examination Question Paper Management System
 
-> A security-focused prototype for protecting highly sensitive competitive examination question papers from unauthorized access, modification, and premature leakage.
+## 1. Project Description
 
----
+**Zero-Trust Split-Seal** is a security-focused prototype for managing
+highly sensitive competitive examination question papers in a controlled
+cloud-based environment.
 
-## 📌 Overview
+The system is designed to protect question papers against:
 
-**Zero-Trust Split-Seal** is a secure cloud-based Question Paper Management System designed to protect competitive examination question papers throughout their lifecycle.
+-   Unauthorized access
+-   Insider threats
+-   Compromised user accounts
+-   Unauthorized modification
+-   Premature disclosure or leakage
+-   Storage tampering
+-   Unauthorized release
 
-The system follows a **Zero-Trust security model**: every sensitive request is authenticated and authorized, and no single user, role, storage location, or compromised credential should be sufficient to independently release the complete question paper.
+The system follows a **Zero-Trust security model**, where no single
+user, role, storage location, or compromised credential is trusted with
+complete control over a question paper.
 
-### Secure Lifecycle
+### Secure Question Paper Lifecycle
 
-```text
+``` text
 Question Creation
        ↓
 Authentication + MFA
        ↓
 Role-Based Access Control
        ↓
-Encrypted Storage
+AES-256-GCM Encryption
        ↓
 Fragmented Storage
        ↓
@@ -29,11 +39,11 @@ Reviewer Approval
        ↓
 Authority Approval
        ↓
-Digital Signature
+SHA-256 Hash + Digital Signature
        ↓
 Digital Seal
        ↓
-3-of-5 Custody
+3-of-5 Custody Verification
        ↓
 Time Lock
        ↓
@@ -41,329 +51,303 @@ Integrity Verification
        ↓
 Controlled Release
        ↓
-Examination Centre
+Authorized Examination Centre
 ```
 
----
+------------------------------------------------------------------------
 
-## 🎯 Problem Statement
+## 2. Key Features
 
-Competitive examination question papers are highly sensitive documents. A leak before the scheduled examination can compromise the fairness and integrity of the examination.
+### Authentication and MFA
 
-Potential leakage points include:
+The system uses secure authentication with:
 
-- Unauthorized access
-- Insider threats
-- Compromised accounts
-- Insecure storage
-- Database compromise
-- Unauthorized modification
-- Vulnerable communication channels
-- Premature portal access
+-   JWT-based authentication
+-   Password hashing using bcrypt
+-   Multi-Factor Authentication (MFA)
+-   OTP-based second-factor verification
+-   Access and refresh tokens
 
-The proposed system protects the question paper from creation through controlled examination-time release.
+MFA requires more than just a password before sensitive operations can
+be performed.
 
----
+### Role-Based Access Control
 
-## 💡 Proposed Solution
+The system applies RBAC and least-privilege principles.
 
-The system uses multiple independent security controls rather than relying on a single security mechanism.
+  -----------------------------------------------------------------------
+  Role                    Main Responsibilities   Restrictions
+  ----------------------- ----------------------- -----------------------
+  **Question Setter**     Create, upload, and     Cannot approve own
+                          submit question papers  paper, release papers,
+                                                  or access protected
+                                                  keys
 
-It follows the principle:
+  **Reviewer**            Review assigned papers, Cannot release papers
+                          approve/reject papers,  or bypass authority
+                          add comments            approval
 
-> **Never trust. Always verify.**
+  **Admin / Examination   Manage examinations,    Cannot independently
+  Authority**             users, reviewers,       bypass release controls
+                          approvals, signatures,  
+                          seals, schedules,       
+                          security events, and    
+                          audit logs              
 
-Before a question paper is released, the system performs multiple security and authorization checks, including:
+  **Examination Centre**  View assigned           Cannot access papers
+                          examinations and        early, access other
+                          receive papers after    centres' papers, or
+                          authorization           modify papers
+  -----------------------------------------------------------------------
 
-1. User authentication
-2. MFA verification
-3. Role authorization
-4. Examination-centre authorization
-5. Paper validity checks
-6. Approval-status verification
-7. Digital-seal verification
-8. Time-lock verification
-9. Storage-fragment integrity verification
-10. SHA-256 verification
-11. Digital-signature verification
-12. 3-of-5 custody verification
-13. Controlled-release authorization
+### AES-256-GCM Encryption
 
-If a critical security check fails, the release operation is blocked.
+Question papers are encrypted using **AES-256-GCM** before secure
+storage.
 
----
+The system is designed so that normal storage access does not expose the
+plaintext question paper.
 
-# 🛡️ Key Security Features
+### Fragmented Storage
 
-## 1. Multi-Factor Authentication
+After encryption, the encrypted paper is divided into multiple
+fragments.
 
-The system uses MFA to provide an additional authentication layer beyond the user's password.
+The prototype simulates isolated storage vaults:
 
-```text
-Password
-   +
-One-Time Password (OTP)
-   ↓
-Authenticated User
+``` text
+Encrypted Question Paper
+          ↓
+      Fragmentation
+       ↙    ↓    ↘
+ Vault A  Vault B  Vault C
 ```
 
-MFA helps protect accounts if a password is compromised.
+The fragments are reconstructed only during an authorized release
+process.
 
----
+> **Prototype note:** The isolated vaults are simulated using separate
+> storage locations in the Docker-based prototype. Production deployment
+> would use properly isolated cloud storage or storage accounts.
 
-## 2. Role-Based Access Control
+### 3-of-5 Threshold Custody
 
-Access is controlled according to the user's assigned role and required responsibilities.
+The release authorization process uses a **3-of-5 custody model**.
 
-### Question Setter
+Five authorization shares are maintained, and at least three are
+required for release authorization.
 
-**Can:**
-
-- Create question papers
-- Upload question papers
-- Submit papers for review
-
-**Cannot:**
-
-- Approve their own paper
-- Release papers
-- Access protected release keys
-
-### Reviewer
-
-**Can:**
-
-- Review assigned papers
-- Approve or reject papers
-- Add review comments
-
-**Cannot:**
-
-- Release papers
-- Bypass authority approval
-
-### Admin / Examination Authority
-
-**Can:**
-
-- Manage examinations
-- Manage users
-- Manage reviewers
-- Manage approvals
-- Perform authorized digital-signature operations
-- Manage seals
-- Configure schedules
-- Monitor security events
-- View audit logs
-
-**Cannot:**
-
-- Independently bypass the release security controls
-
-### Examination Centre
-
-**Can:**
-
-- View assigned examinations
-- Receive question papers after all release conditions are satisfied
-
-**Cannot:**
-
-- Access papers before release
-- Access papers assigned to other centres
-- Modify question papers
-
----
-
-## 3. AES-256-GCM Encryption
-
-Question-paper data is encrypted before secure storage using AES-256-GCM.
-
-```text
-Question Paper
-      ↓
-AES-256-GCM Encryption
-      ↓
-Encrypted Data
-      ↓
-Secure Storage
-```
-
-The plaintext question paper is not exposed through normal storage access.
-
----
-
-## 4. Split Storage
-
-Encrypted question-paper data is divided into multiple fragments.
-
-```text
-Encrypted Paper
-       ↓
-   ┌───┼───┐
-   ↓   ↓   ↓
-   A   B   C
-```
-
-The prototype uses isolated storage vaults:
-
-```text
-Vault A
-Vault B
-Vault C
-```
-
-The fragments are reconstructed only during an authorized release operation.
-
-> **Prototype note:** the Docker-based vaults simulate isolated storage locations. A production deployment would use independently isolated storage infrastructure.
-
----
-
-## 5. 3-of-5 Threshold Custody
-
-The system demonstrates multi-party release authorization using a 3-of-5 custody model.
-
-```text
+``` text
 5 Authorization Shares
-          ↓
-   Minimum 3 Required
-          ↓
- Release Authorization
+        ↓
+Minimum 3 Required
+        ↓
+Release Authorization
 ```
 
-At least three authorized custody participants are required for the release authorization process.
+This reduces dependence on a single authority or compromised credential.
 
-This prevents a single participant from independently controlling the complete release process.
+### Digital Signature
 
----
+After review and final authority approval, the approved paper
+fingerprint is digitally signed.
 
-## 6. Digital Signature
+The process is:
 
-After review and final approval, the Examination Authority digitally signs the approved paper fingerprint.
-
-```text
+``` text
 Approved Paper
       ↓
-   SHA-256 Hash
+SHA-256 Hash
       ↓
 Private Signing Key
       ↓
 Digital Signature
 ```
 
-The corresponding public key is used to verify the signature.
+The corresponding public key is used for verification.
 
-If the signed content is modified:
+If the paper is modified after signing, the signature verification fails
+and release is blocked.
 
-```text
-Modified Paper
-      ↓
-Signature Verification
-      ↓
-❌ INVALID
-      ↓
-RELEASE BLOCKED
-```
+### Digital Seal
 
----
+A paper becomes sealed after:
 
-## 7. Digital Seal
+1.  Reviewer approval
+2.  Authority approval
+3.  Digital signature
 
-After the required approvals and digital signing process are completed, the question paper is sealed.
+A sealed paper cannot be normally modified by users.
 
-```text
-REVIEW APPROVED
-       ↓
-AUTHORITY APPROVED
-       ↓
-DIGITALLY SIGNED
-       ↓
-🔒 SEALED
-```
-
-Normal users cannot modify a sealed question paper through the application workflow.
-
----
-
-## 8. Time-Lock
+### Time-Lock
 
 Question papers remain inaccessible until their configured release time.
 
-The system uses **server-side time** rather than trusting the user's browser clock.
+The release decision is based on **server-side time**, rather than the
+browser's local clock.
 
 Example:
 
-```text
-Release Time: 10:00 AM
-Current Time: 09:30 AM
+``` text
+Configured Release Time: 10:00 AM
 
-❌ TIME LOCK ACTIVE
+Current Server Time: 09:30 AM
+Result: RELEASE BLOCKED
+
+Current Server Time: 10:05 AM
+Result: Release window available
 ```
 
-After the release time:
+### Integrity Verification
 
-```text
-Release Time: 10:00 AM
-Current Time: 10:05 AM
+The system verifies stored fragments and the complete paper using
+checksums and SHA-256 hashing.
 
-✅ RELEASE WINDOW OPEN
-```
+If a storage fragment is modified or corrupted:
 
-The release process still requires the other authorization and integrity checks to succeed.
-
----
-
-## 9. Integrity Verification
-
-Stored fragments are verified using checksums and SHA-256-based integrity verification.
-
-```text
-Stored Checksum
-       ≠
-Calculated Checksum
+``` text
+Checksum Mismatch
        ↓
-🚨 INTEGRITY VIOLATION
+Integrity Violation
        ↓
-❌ RELEASE BLOCKED
+Release Aborted
 ```
 
-A corrupted or tampered question paper cannot proceed through the normal release process.
+### Security Monitoring and Audit Logging
 
----
+Security-sensitive events are recorded in audit logs.
 
-## 10. Security Monitoring and Audit Logging
+Examples include:
 
-The system records security-sensitive events such as:
+-   Successful login
+-   Failed login
+-   MFA failure
+-   Unauthorized access attempts
+-   Early release attempts
+-   Question paper uploads
+-   Review and approval events
+-   Paper sealing
+-   Integrity violations
+-   Signature verification failures
+-   Successful releases
 
-- Successful login attempts
-- Failed login attempts
-- MFA failures
-- Unauthorized access attempts
-- Early release attempts
-- Question-paper uploads
-- Approval actions
-- Paper sealing
-- Integrity violations
-- Digital-signature failures
-- Successful releases
+Events can be categorized as:
 
-Security events are categorized according to their severity, including:
+-   `INFO`
+-   `WARNING`
+-   `CRITICAL`
 
-```text
-INFO
-WARNING
-CRITICAL
-```
+------------------------------------------------------------------------
 
-These records provide traceability for security investigation and accountability.
+## 3. Problem Statement
 
----
+Competitive examination question papers contain highly sensitive
+information and require strict confidentiality and integrity controls.
 
-# 📋 Question Paper Lifecycle
+Traditional systems can be exposed to risks such as:
 
-A question paper follows a controlled state-based lifecycle:
+-   Unauthorized user access
+-   Insider threats
+-   Compromised accounts
+-   Insecure storage
+-   Database compromise
+-   Unauthorized modification
+-   Vulnerable communication channels
+-   Premature access through examination portals
 
-```text
+A compromise of a single account or storage system should not be
+sufficient to obtain or release the complete question paper.
+
+------------------------------------------------------------------------
+
+## 4. Proposed Solution
+
+The proposed **Zero-Trust Split-Seal** system applies multiple security
+layers throughout the question paper lifecycle.
+
+Before a question paper can be released, the backend verifies:
+
+1.  User authentication
+2.  MFA verification
+3.  Role authorization
+4.  Examination centre authorization
+5.  Question paper validity
+6.  Review and approval status
+7.  Digital seal
+8.  Time-lock status
+9.  Storage fragment integrity
+10. SHA-256 verification
+11. Digital signature
+12. 3-of-5 threshold custody
+13. Controlled release authorization
+
+If any critical security check fails, the release operation is blocked.
+
+### Core Principle
+
+> **Never Trust. Always Verify.**
+
+No single person, compromised account, storage fragment, or security
+failure should be sufficient to obtain or release a complete question
+paper before the authorized time.
+
+------------------------------------------------------------------------
+
+## 5. Security Mechanisms
+
+  -----------------------------------------------------------------------
+  Security Mechanism                  Purpose
+  ----------------------------------- -----------------------------------
+  **MFA**                             Provides an additional
+                                      authentication factor using OTP
+
+  **RBAC**                            Restricts actions according to user
+                                      role
+
+  **Least Privilege**                 Gives users only the permissions
+                                      required for their responsibilities
+
+  **AES-256-GCM**                     Encrypts question papers before
+                                      storage
+
+  **Fragmented Storage**              Prevents one storage location from
+                                      containing the complete protected
+                                      paper
+
+  **3-of-5 Custody**                  Requires multiple authorization
+                                      shares for controlled release
+
+  **SHA-256**                         Detects changes to protected data
+
+  **Digital Signature**               Verifies authenticity and integrity
+                                      of the approved paper
+
+  **Digital Seal**                    Prevents normal modification after
+                                      final approval
+
+  **Time-Lock**                       Prevents release before the
+                                      configured release time
+
+  **Audit Logs**                      Records security-sensitive
+                                      activities
+
+  **Anomaly Monitoring**              Helps identify suspicious or
+                                      abnormal activities
+
+  **TLS/HTTPS**                       Protects data during network
+                                      communication
+
+  **KMS/HSM**                         Recommended for secure key
+                                      management in production
+  -----------------------------------------------------------------------
+
+------------------------------------------------------------------------
+
+## 6. Question Paper Lifecycle
+
+The system enforces a controlled lifecycle:
+
+``` text
 DRAFT
   ↓
 SUBMITTED
@@ -381,130 +365,146 @@ TIME LOCKED
 RELEASED
 ```
 
-A paper cannot directly transition from `DRAFT` to `RELEASED`.
+A paper cannot directly move from:
 
----
+``` text
+DRAFT → RELEASED
+```
 
-# 🏗️ System Architecture
+The required approval and security stages must be completed first.
 
-```text
+------------------------------------------------------------------------
+
+## 7. System Architecture
+
+``` text
                          USERS
                            │
-              ┌────────────┼────────────┐
-              │            │            │
-            Setter       Reviewer      Admin
-              │            │            │
-              └────────────┼────────────┘
-                           │
                            ▼
-                 ┌────────────────────┐
-                 │   Next.js Client   │
-                 │ React + TypeScript │
-                 └─────────┬──────────┘
-                           │
-                         HTTPS
-                           │
+              ┌─────────────────────────┐
+              │ Next.js Client          │
+              │ React + TypeScript      │
+              └────────────┬────────────┘
+                           │ HTTPS
                            ▼
-                 ┌────────────────────┐
-                 │    NestJS API      │
-                 │ REST + Security    │
-                 │      Guards        │
-                 └─────────┬──────────┘
+              ┌─────────────────────────┐
+              │ NestJS REST API         │
+              │ Guards + Services       │
+              └────────────┬────────────┘
                            │
-              ┌────────────┼────────────┐
-              │            │            │
-              ▼            ▼            ▼
-        Authentication    RBAC      Security
-          + MFA + JWT     Guards      Services
-              └────────────┼────────────┘
-                           │
+          ┌────────────────┼────────────────┐
+          ▼                ▼                ▼
+   Authentication      RBAC Guards     Security Services
+       + MFA
+          │                │                │
+          └────────────────┼────────────────┘
                            ▼
-                ┌──────────────────────┐
-                │ Question Paper       │
-                │ Management Service   │
-                └──────────┬───────────┘
-                           │
+              ┌─────────────────────────┐
+              │ Question Paper         │
+              │ Management Service      │
+              └────────────┬────────────┘
                            ▼
-                   AES-256-GCM
-                    Encryption
-                           │
+              ┌─────────────────────────┐
+              │ AES-256-GCM Encryption  │
+              └────────────┬────────────┘
                            ▼
                    Fragment Storage
-                    /      |      \
-                   A       B       C
-                    \      |      /
+                    ↙     ↓      ↘
+                 Vault A Vault B Vault C
                            │
                            ▼
-                 Integrity Verification
-                           │
+              ┌─────────────────────────┐
+              │ Integrity Verification  │
+              └────────────┬────────────┘
                            ▼
-                  Digital Signature
-                           │
+              ┌─────────────────────────┐
+              │ Digital Signature       │
+              └────────────┬────────────┘
                            ▼
-                    Digital Seal
-                           │
+              ┌─────────────────────────┐
+              │ 3-of-5 Custody          │
+              └────────────┬────────────┘
                            ▼
-                     3-of-5 Custody
-                           │
+              ┌─────────────────────────┐
+              │ Time-Lock Verification  │
+              └────────────┬────────────┘
                            ▼
-                       Time Lock
-                           │
-                           ▼
-                  Controlled Release
-                           │
+              ┌─────────────────────────┐
+              │ Controlled Release      │
+              └────────────┬────────────┘
                            ▼
                  Examination Centre
 ```
 
 ### Security Monitoring Layer
 
-```text
-┌──────────────────────────────────────────────┐
-│        Security Monitoring & Audit           │
-│                                              │
-│  Authentication Events                       │
-│  Authorization Events                        │
-│  MFA Failures                                │
-│  Early Release Attempts                      │
-│  Approval Events                             │
-│  Integrity Violations                        │
-│  Signature Failures                          │
-│  Release Events                              │
-│  Audit Logs                                  │
-└──────────────────────────────────────────────┘
+Security events are recorded throughout the system:
+
+``` text
+Authentication Events
+Authorization Events
+MFA Failures
+Early Release Attempts
+Approval Events
+Integrity Violations
+Signature Failures
+Release Events
+        ↓
+   Audit Logs
 ```
 
----
+------------------------------------------------------------------------
 
-# 🧰 Technology Stack
+## 8. Technologies and Tools Used
 
-| Layer | Technology |
-|---|---|
-| Frontend Language | TypeScript |
-| UI Framework | React 18 |
-| Frontend Framework | Next.js 14 |
-| Frontend Architecture | App Router |
-| Backend Language | TypeScript |
-| Backend Runtime | Node.js |
-| Backend Framework | NestJS |
-| API | REST |
-| Database | PostgreSQL 15 |
-| ORM | Prisma |
-| Authentication | JWT |
-| Password Security | bcrypt |
-| MFA | OTP-based MFA |
-| Encryption | AES-256-GCM |
-| Hashing | SHA-256 |
-| Digital Signature | RSA-based cryptography |
-| Containerization | Docker |
-| Local Orchestration | Docker Compose |
-| Deployment | Vercel |
+### Frontend
 
----
+  Technology       Purpose
+  ---------------- -----------------------------------
+  **TypeScript**   Type-safe application development
+  **React 18**     Frontend UI
+  **Next.js 14**   Frontend framework and App Router
 
-# 📁 Project Structure
+### Backend
 
-```text
+  Technology       Purpose
+  ---------------- -----------------------------------
+  **TypeScript**   Backend development
+  **Node.js**      Server-side runtime
+  **NestJS**       REST API and backend architecture
+
+### Database
+
+  Technology          Purpose
+  ------------------- ---------------------------------------
+  **PostgreSQL 15**   Relational database
+  **Prisma ORM**      Database access and schema management
+
+### Security
+
+  Technology             Purpose
+  ---------------------- -----------------------------------
+  **JWT**                Authentication and session tokens
+  **bcrypt**             Password hashing
+  **AES-256-GCM**        Question paper encryption
+  **SHA-256**            Integrity hashing
+  **RSA Cryptography**   Digital signatures
+  **MFA / OTP**          Multi-factor authentication
+
+### Infrastructure and Tools
+
+  Tool                 Purpose
+  -------------------- --------------------------------------------
+  **Docker**           Containerization
+  **Docker Compose**   Running application services
+  **Git / GitHub**     Version control and source-code management
+  **Prisma Migrate**   Database migrations
+
+------------------------------------------------------------------------
+
+## 9. Project Structure
+
+``` text
 secure-question-paper-system/
 │
 ├── frontend/
@@ -540,40 +540,97 @@ secure-question-paper-system/
 └── README.md
 ```
 
----
+### Module Purpose
 
-# 🚀 Running the Project
+  -----------------------------------------------------------------------
+  Module                              Purpose
+  ----------------------------------- -----------------------------------
+  `auth`                              Authentication, JWT, MFA, and
+                                      access control
 
-## Prerequisites
+  `users`                             User and role management
 
-Install the following:
+  `examinations`                      Examination creation and management
 
-- Node.js
-- Docker
-- Docker Compose
-- Git
-- PostgreSQL (if running the database outside Docker)
+  `question-papers`                   Question paper creation, upload,
+                                      and lifecycle management
 
----
+  `reviews`                           Reviewer assignment and review
+                                      operations
 
-## 1. Clone the Repository
+  `approvals`                         Authority approval and approval
+                                      workflow
 
-```bash
+  `releases`                          Time-lock and controlled release
+                                      operations
+
+  `security`                          Encryption, signatures, integrity,
+                                      custody, and security controls
+
+  `audit`                             Security event and audit-log
+                                      management
+
+  `prisma`                            Database schema and migrations
+
+  `vault-a/b/c`                       Simulated isolated encrypted
+                                      storage locations
+  -----------------------------------------------------------------------
+
+------------------------------------------------------------------------
+
+## 10. Database Entities
+
+The main database entities are:
+
+-   **Users**
+-   **Examinations**
+-   **Question Papers**
+-   **Question Paper Fragments**
+-   **Reviews**
+-   **Approvals**
+-   **Examination Centres**
+-   **Centre Assignments**
+-   **Release Records**
+-   **Audit Logs**
+
+These entities support the question paper lifecycle, authorization
+workflow, centre assignment, release tracking, and security monitoring.
+
+------------------------------------------------------------------------
+
+## 11. Installation and Setup
+
+### Prerequisites
+
+Install the following before running the project:
+
+-   Node.js
+-   Docker
+-   Docker Compose
+-   Git
+-   npm
+
+### Step 1: Clone the Repository
+
+``` bash
 git clone <YOUR-GITHUB-REPOSITORY-URL>
 cd secure-question-paper-system
 ```
 
----
+Replace `<YOUR-GITHUB-REPOSITORY-URL>` with the URL of this GitHub
+repository.
 
-## 2. Configure Environment Variables
+### Step 2: Configure Environment Variables
 
-Create the required `.env` file using `.env.example`.
+Create the environment file from the example:
 
-The project uses environment variables for database connectivity, authentication secrets, encryption configuration, signing keys, and storage-vault paths.
+``` bash
+cp .env.example .env
+```
 
-Example variable names:
+Configure the required variables:
 
-```env
+``` env
 DATABASE_URL=
 JWT_SECRET=
 JWT_REFRESH_SECRET=
@@ -585,278 +642,452 @@ VAULT_B_PATH=
 VAULT_C_PATH=
 ```
 
-> **Security:** Never commit real passwords, JWT secrets, encryption secrets, private signing keys, OTP secrets, or other production credentials to GitHub.
+Do not commit real secrets, private keys, or production credentials to
+GitHub.
 
----
+### Step 3: Start the Application
 
-## 3. Start the Application
+Build and start the Docker services:
 
-Using Docker Compose:
-
-```bash
+``` bash
 docker compose up --build
 ```
 
-This starts the required application services and database according to the project's Docker configuration.
+### Step 4: Run Database Migrations
 
----
+Run the Prisma migration command:
 
-## 4. Database Setup
-
-Run Prisma migrations when required:
-
-```bash
+``` bash
 npx prisma migrate dev
 ```
 
-Generate the Prisma client:
+### Step 5: Seed the Database (Optional)
 
-```bash
-npx prisma generate
-```
+If seed data is configured:
 
-If the project contains a seed configuration:
-
-```bash
+``` bash
 npx prisma db seed
 ```
 
----
+### Step 6: Access the Application
 
-# 🧪 Security Demonstration Scenarios
+Open the frontend using the local URL provided by the application after
+startup.
 
-## Scenario 1 — Unauthorized Role Access
+For the deployed prototype, the live demo is:
 
-```text
+**https://cloud-project-woad-eight.vercel.app/**
+
+------------------------------------------------------------------------
+
+## 12. Sample Input and Output
+
+### Sample Input: Valid Question Paper Submission
+
+Example input:
+
+``` text
+Examination:
+Government Competitive Examination 2026
+
+Paper:
+General Studies
+
+Role:
 Question Setter
+
+Exam Centre:
+Centre 101
+
+Release Time:
+10:00 AM
+
+Question Paper:
+Encrypted question paper file
+```
+
+### Processing
+
+The system processes the paper through:
+
+``` text
+Question Paper Submitted
+        ↓
+MFA Verification
+        ↓
+Role Authorization
+        ↓
+AES-256-GCM Encryption
+        ↓
+Fragmented Storage
+        ↓
+Reviewer Approval
+        ↓
+Authority Approval
+        ↓
+SHA-256 Hash Generation
+        ↓
+Digital Signature
+        ↓
+Digital Seal
+        ↓
+3-of-5 Custody Verification
+        ↓
+Time-Lock Verification
+        ↓
+Integrity Verification
+        ↓
+Controlled Release
+```
+
+### Sample Output: Successful Release
+
+``` text
+Release Status: AUTHORIZED
+
+Authentication: PASSED
+MFA: PASSED
+Role Authorization: PASSED
+Centre Authorization: PASSED
+Approval Status: PASSED
+Digital Seal: VALID
+Time Lock: PASSED
+Fragment Integrity: VALID
+SHA-256 Verification: PASSED
+Digital Signature: VALID
+3-of-5 Custody: VERIFIED
+
+Result:
+Question Paper Released Successfully
+```
+
+### Sample Security Failure: Early Release
+
+#### Input
+
+An authorized examination centre attempts to access the question paper
+before the configured release time.
+
+``` text
+Configured Release Time: 10:00 AM
+Current Server Time: 09:30 AM
+```
+
+#### Output
+
+``` text
+Release Status: BLOCKED
+
+Reason:
+Time-Lock Active
+
+Security Event:
+Early Release Attempt
+
+Audit Log:
+Event Recorded
+
+Result:
+Question Paper Not Released
+```
+
+### Sample Security Failure: Storage Tampering
+
+#### Input
+
+A stored question paper fragment is modified.
+
+#### Output
+
+``` text
+Fragment Integrity: FAILED
+Checksum: MISMATCH
+Integrity Status: INVALID
+
+Release Status: BLOCKED
+
+Security Event:
+Integrity Violation
+
+Result:
+Release Aborted
+```
+
+### Sample Security Failure: Invalid Digital Signature
+
+``` text
+Digital Signature: INVALID
+Paper Integrity: FAILED
+
+Release Status: BLOCKED
+
+Result:
+Question Paper Not Released
+```
+
+------------------------------------------------------------------------
+
+## 13. Security Demonstration Scenarios
+
+### Scenario 1: Unauthorized Role Access
+
+``` text
+Unauthorized User
        ↓
-Attempts Restricted Admin Operation
+Protected API Request
+       ↓
+RBAC Check
        ↓
 403 Forbidden
        ↓
-Audit Event
+Audit Event Recorded
 ```
 
----
+### Scenario 2: Early Release Attempt
 
-## Scenario 2 — Early Release Attempt
-
-```text
-Examination Centre
-       ↓
-Requests Paper Before Release Time
+``` text
+Release Request
        ↓
 Time-Lock Check
        ↓
-❌ RELEASE BLOCKED
+Release Time Not Reached
+       ↓
+Release Blocked
        ↓
 Security Event Recorded
 ```
 
----
+### Scenario 3: Storage Tampering
 
-## Scenario 3 — Storage Tampering
-
-```text
-Storage Fragment Modified
-          ↓
-Checksum Verification
-          ↓
-❌ MISMATCH
-          ↓
+``` text
+Stored Fragment
+       ↓
+Integrity Verification
+       ↓
+Checksum Mismatch
+       ↓
 Integrity Violation
-          ↓
-❌ RELEASE ABORTED
+       ↓
+Release Aborted
 ```
 
----
+### Scenario 4: Signature Failure
 
-## Scenario 4 — Digital Signature Failure
-
-```text
-Paper Modified
-      ↓
-Signature Verification
-      ↓
-❌ INVALID
-      ↓
+``` text
+Question Paper
+       ↓
+Digital Signature Verification
+       ↓
+Invalid Signature
+       ↓
 Release Blocked
 ```
 
----
+### Scenario 5: Valid Release
 
-## Scenario 5 — Valid Release
-
-```text
-Authentication ✓
-MFA ✓
-Role ✓
-Centre Assignment ✓
-Approval ✓
-Digital Seal ✓
-3-of-5 Custody ✓
-Time Lock ✓
-Integrity ✓
-Digital Signature ✓
-        ↓
-🟢 RELEASE AUTHORIZED
-        ↓
-Question Paper Delivered
+``` text
+Authentication              ✓
+MFA                         ✓
+Role Authorization          ✓
+Centre Assignment           ✓
+Approval                    ✓
+Digital Seal                ✓
+3-of-5 Custody              ✓
+Time Lock                   ✓
+Integrity Verification      ✓
+Digital Signature           ✓
+                            ↓
+                    Release Authorized
+                            ↓
+                  Paper Delivered to Centre
 ```
 
----
+------------------------------------------------------------------------
 
-# 🗄️ Database Entities
+## 14. Design Principles
 
-The system manages entities representing the question-paper lifecycle and its security controls, including:
+The system follows these security principles:
 
-- Users
-- Examinations
-- Question Papers
-- Question Paper Fragments
-- Reviews
-- Approvals
-- Examination Centres
-- Centre Assignments
-- Release Records
-- Audit Logs
+### Least Privilege
 
----
+Users receive only the permissions necessary for their assigned
+responsibilities.
 
-# 🔒 Security Design Principles
+### Separation of Duties
 
-## Least Privilege
+Question creation, review, authority approval, and release are separated
+to reduce the risk of a single compromised account controlling the
+entire process.
 
-Users receive only the permissions required for their assigned role.
+### Zero Trust
 
-## Separation of Duties
+Every sensitive request is authenticated and authorized instead of being
+automatically trusted.
 
-The person who creates a question paper cannot independently approve and release that paper.
+### Defense in Depth
 
-## Defense in Depth
+Multiple security controls protect the question paper:
 
-Multiple security mechanisms protect the question paper instead of relying on a single control.
-
-## Zero Trust
-
-Sensitive requests are authenticated and authorized before access is granted.
-
-## Fail Secure
-
-If a required security verification fails, the release operation is blocked.
-
-## Integrity Before Availability
-
-A question paper that fails integrity or signature verification must not be released merely because its scheduled release time has arrived.
-
----
-
-# 👤 Prototype Roles
-
-The prototype demonstrates the following roles:
-
-| Role | Responsibility |
-|---|---|
-| **Admin / Examination Authority** | System administration, examination management, approvals, signing, sealing, security monitoring |
-| **Question Setter** | Creates and submits question papers |
-| **Reviewer** | Reviews and approves/rejects assigned papers |
-| **Examination Centre** | Receives assigned question papers after release conditions are satisfied |
-
-Demo identities, if present in the application, are **prototype/demo identities only** and should not be treated as real government personnel.
-
----
-
-# 🎬 Recommended Demo Flow
-
-For demonstrating the system:
-
-```text
-Login
-  ↓
-MFA Authentication
-  ↓
-Create Question Paper
-  ↓
-Submit for Review
-  ↓
-Reviewer Approval
-  ↓
-Authority Approval
-  ↓
+``` text
+Authentication
+      +
+MFA
+      +
+RBAC
+      +
+Encryption
+      +
+Fragmentation
+      +
+Approval
+      +
 Digital Signature
-  ↓
-Digital Seal
-  ↓
-Encryption + Fragment Storage
-  ↓
-3-of-5 Custody
-  ↓
-Time Lock
-  ↓
+      +
 Integrity Verification
-  ↓
-Controlled Release
-  ↓
-Centre Views Question Paper
+      +
+Threshold Custody
+      +
+Time Lock
+      +
+Audit Logging
 ```
 
----
+### Fail Secure
 
-# 🌐 Live Prototype
+If a critical verification fails, the system blocks the release instead
+of allowing access.
 
-The deployed prototype is available at:
+### Integrity Before Availability
+
+The system prioritizes verifying that the question paper has not been
+modified before allowing release.
+
+------------------------------------------------------------------------
+
+## 15. End-to-End Demo Flow
+
+A typical secure workflow is:
+
+``` text
+1. Question Setter logs in
+2. MFA is verified
+3. Question paper is created/uploaded
+4. Paper is encrypted using AES-256-GCM
+5. Encrypted paper is fragmented
+6. Fragments are stored in separate vaults
+7. Reviewer reviews the paper
+8. Reviewer approves the paper
+9. Examination Authority performs final approval
+10. SHA-256 fingerprint is generated
+11. Authority digitally signs the paper
+12. Digital seal is applied
+13. Paper enters the time-lock stage
+14. Release request is submitted
+15. Authentication is verified
+16. MFA is verified
+17. Role authorization is checked
+18. Centre assignment is checked
+19. Approval and seal status are checked
+20. 3-of-5 custody is verified
+21. Release time is verified using server time
+22. Storage fragment integrity is verified
+23. SHA-256 and digital signature are verified
+24. Controlled decryption/reconstruction is performed
+25. Paper is released to the authorized examination centre
+26. Release activity is recorded in the audit log
+```
+
+------------------------------------------------------------------------
+
+## 16. Demo Roles
+
+The prototype can be demonstrated using the following role categories:
+
+-   **Admin / Examination Authority**
+-   **Question Setter**
+-   **Reviewer**
+-   **Examination Centre**
+
+These identities and roles are intended for prototype demonstration and
+should be replaced with properly managed identities in a real
+deployment.
+
+------------------------------------------------------------------------
+
+## 17. Production Considerations
+
+This repository is a **security-focused prototype / academic
+demonstration** and should not be considered production-ready government
+infrastructure.
+
+A production deployment would additionally require controls such as:
+
+-   Hardware Security Modules (HSM)
+-   Cloud Key Management Service (KMS)
+-   Properly isolated cloud storage accounts
+-   Hardware-backed identity
+-   Network segmentation
+-   SIEM integration
+-   SOC monitoring
+-   Penetration testing
+-   Independent security audits
+-   Disaster recovery
+-   High availability
+-   Key rotation and lifecycle management
+-   Formal threat modelling
+-   Security incident response procedures
+-   Compliance and regulatory controls
+-   Secure deployment and infrastructure hardening
+
+The Docker-based storage vaults in this prototype simulate isolated
+storage locations and are not a replacement for production-grade cloud
+isolation.
+
+------------------------------------------------------------------------
+
+## 18. Project Objective
+
+The main objective of the project is to combine:
+
+``` text
+Authentication
+      +
+Authorization
+      +
+Encryption
+      +
+Fragmentation
+      +
+Multi-Party Custody
+      +
+Digital Signature
+      +
+Integrity Verification
+      +
+Time-Lock
+      +
+Security Monitoring
+```
+
+to create a controlled question paper management system in which no
+single user, compromised account, storage fragment, or security failure
+should be sufficient to obtain or release the complete question paper
+before the authorized examination time.
+
+------------------------------------------------------------------------
+
+## 19. Live Prototype
+
+The deployed prototype can be accessed at:
 
 **https://cloud-project-woad-eight.vercel.app/**
 
----
+The live deployment demonstrates the application's security-focused
+workflow and user interface.
 
-# ⚠️ Prototype Disclaimer
+------------------------------------------------------------------------
 
-This project is a **security-focused prototype and academic demonstration**. It should not be considered production-ready government examination infrastructure.
+## 20. License
 
-The prototype demonstrates the security architecture and controls required for secure question-paper management. Some infrastructure-level controls required for a real government deployment would require dedicated production infrastructure.
-
-A production deployment would additionally require measures such as:
-
-- Hardware Security Modules (HSM)
-- Cloud Key Management Services (KMS)
-- Independently isolated cloud storage accounts
-- Hardware-backed identity
-- Network segmentation
-- SIEM integration
-- Security Operations Centre monitoring
-- Professional penetration testing
-- Independent security audits
-- Disaster recovery
-- High availability
-- Secure key rotation
-- Formal threat modelling
-- Compliance and regulatory controls
-
-The Docker-based split-storage implementation is intended to simulate isolated storage vaults within the prototype.
-
----
-
-# 🎯 Project Objective
-
-The objective of the project is to demonstrate how modern cybersecurity principles can be applied to protect highly sensitive examination question papers.
-
-The system combines:
-
-> **Authentication + MFA + Authorization + Encryption + Fragmentation + Multi-Party Custody + Digital Signature + Digital Seal + Integrity Verification + Time-Lock + Monitoring**
-
-to provide layered protection from question-paper creation through controlled examination-time release.
-
----
-
-# ⭐ Core Security Principle
-
-> **No single person, compromised account, storage fragment, or individual security failure should be sufficient to obtain or release the complete question paper before the authorized examination time.**
-
----
-
-## 📜 License
-
-This project is developed as an academic cybersecurity prototype.
-
-Add an appropriate open-source license file if the project is intended to be distributed publicly.
+This project is intended for academic, educational, and prototype
+demonstration purposes.
